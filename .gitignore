@@ -1,0 +1,21 @@
+# env & secrets
+.env
+.env.local
+*.env.local
+mobile/dart_defines.json
+
+# node
+node_modules/
+admin/dist/
+
+# flutter / dart
+mobile/build/
+mobile/android/build/
+mobile/android/.gradle/
+mobile/.dart_tool/
+mobile/.flutter-plugins*
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db

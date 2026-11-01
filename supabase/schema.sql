@@ -1,0 +1,623 @@
+-- ============================================================
+-- DANAKU Lender Platform — Supabase schema + RLS
+-- Jalankan SEKALI di Supabase Dashboard > SQL Editor > New query
+-- ============================================================
+
+-- 1. CUSTOM TYPES ------------------------------------------------
+create type user_role   as enum ('borrower', 'admin', 'petugas', 'nasabah');
+create type kyc_status  as enum ('pending', 'verified', 'rejected');
+create type doc_type    as enum ('ktp', 'selfie');
+create type loan_frequency as enum ('weekly', 'monthly');  -- v2.0 bank keliling
+create type loan_status as enum ('submitted', 'under_review', 'approved', 'rejected', 'disbursed', 'active', 'completed');
+
+-- 2. PROFILES (1-1 dengan auth.users) ----------------------------
+create table public.profiles (
+  id          uuid primary key references auth.users(id) on delete cascade,
+  role        user_role  not null default 'nasabah',   -- v2.0: admin|petugas|nasabah
+  email       text       not null default '',  -- copy dari auth.users
+  full_name   text       not null default '',  -- = nama sesuai KTP
+  -- --- Data KTP (model koperasi: full KTP wajib) ---
+  nik         text       default '',
+  tempat_lahir text      default '',
+  birth_date  date,                              -- = tgl lahir KTP
+  jenis_kelamin text     default '' check (jenis_kelamin in ('', 'L', 'P')),
+  address     text       default '',             -- = alamat (nama jalan/no)
+  rt_rw       text       default '',
+  kelurahan   text       default '',
+  kecamatan   text       default '',
+  kota        text       default '',
+  provinsi    text       default '',
+  agama       text       default '',
+  status_kawin text      default '',
+  pekerjaan   text       default '',
+  kewarganegaraan text   default 'WNI',
+  -- --- Kontak & penugasan ---
+  phone       text       default '',             -- nomor utama (wajib, format ID)
+  petugas_id  uuid references public.profiles(id) on delete set null,  -- v2.0: petugas penanggung jawab
+  wilayah     text       default '',             -- v2.0: wilayah (petugas) / domisili tagihan
+  kyc_status  kyc_status not null default 'pending',
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index idx_profiles_petugas on public.profiles(petugas_id);
+
+-- Kontak darurat (2 per borrower: seq 1 & 2, nama+hubungan+nomor wajib)
+create table public.emergency_contacts (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  seq        int not null check (seq in (1,2)),
+  nama       text not null default '',
+  hubungan   text not null default '',
+  nomor      text not null default '',
+  created_at timestamptz not null default now(),
+  unique (user_id, seq)
+);
+
+-- Validator nomor HP Indonesia: 08… / 628… / +628…, 9–15 digit
+create or replace function public.valid_id_phone(p text)
+returns boolean language sql immutable as $$
+  select p ~ '^(\+62|62|0)8[0-9]{7,12}$';
+$$;
+
+-- 3. KYC DOCUMENTS ------------------------------------------------
+create table public.kyc_documents (
+  id           uuid primary key default gen_random_uuid(),
+  user_id      uuid not null references public.profiles(id) on delete cascade,
+  doc_type     doc_type not null,
+  storage_path text not null,                   -- path di bucket 'kyc-documents'
+  created_at   timestamptz not null default now()
+);
+
+-- 4. LOANS (v2.0: frequency + bunga 15% + tenor s/d 52 + late_fee + collected_by)
+create table public.loans (
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid not null references public.profiles(id) on delete cascade,
+  amount          bigint not null check (amount between 500000 and 20000000), -- Rp500rb - Rp20jt
+  tenor_months    int not null check (tenor_months between 1 and 52),  -- v2.0: jumlah periode (weekly s/d 52 / monthly s/d 12)
+  frequency       loan_frequency not null default 'weekly',            -- v2.0: mingguan|bulanan
+  interest_rate   numeric(5,2) not null default 15.00,  -- v2.0: flat 15%/periode (sementara)
+  monthly_payment bigint not null,   -- = cicilan per periode (nama kolom dipertahankan)
+  late_fee        bigint not null default 0,           -- v2.0: denda (0 sampai ditentukan)
+  collected_by    uuid references public.profiles(id) on delete set null,  -- v2.0: petugas input terakhir
+  purpose         text default '',
+  status          loan_status not null default 'submitted',
+  reject_reason   text,
+  decided_by      uuid references public.profiles(id),
+  decided_at      timestamptz,
+  created_at      timestamptz not null default now()
+);
+
+-- Guard insert (v2.0): borrower/nasabah tidak bisa set rate/status/kolom keputusan;
+-- bunga dikunci 15.00, cicilan = ceil((amount + 15%) / tenor)
+create or replace function public.loans_guard_insert()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then
+    new.status        = 'submitted';
+    new.interest_rate = 15.00;
+    new.late_fee      = 0;
+    new.decided_by    = null;
+    new.decided_at    = null;
+    new.collected_by  = null;
+    if new.frequency is null then new.frequency = 'weekly'; end if;
+    new.monthly_payment = ceil((new.amount + new.amount * new.interest_rate / 100) / new.tenor_months)::bigint;
+  end if;
+  return new;
+end;
+$$;
+create trigger loans_guard before insert on public.loans
+  for each row execute function public.loans_guard_insert();
+
+-- 5. INSTALLMENTS (v2.0: + paid_by + amount_paid cicilan parsial) -----------
+create table public.installments (
+  id         uuid primary key default gen_random_uuid(),
+  loan_id    uuid not null references public.loans(id) on delete cascade,
+  seq        int not null,
+  due_date   date not null,
+  amount     bigint not null,
+  amount_paid bigint not null default 0,   -- v2.0: terkumpul (parsial)
+  paid_by    uuid references public.profiles(id) on delete set null,  -- v2.0: petugas penerima
+  status     text not null default 'unpaid' check (status in ('unpaid','paid','overdue')),
+  paid_at    timestamptz,
+  unique (loan_id, seq)
+);
+
+-- 6. NOTIFICATIONS ----------------------------------------------------
+create table public.notifications (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  title      text not null,
+  body       text,
+  type       text default 'info',   -- info | loan_status | reminder | tagihan | janji_bayar (v2.0)
+  is_read    boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+-- 6b. PAYMENTS: buku kas digital — setiap setoran TUNAI (v2.0) --------------
+create table public.payments (
+  id             uuid primary key default gen_random_uuid(),
+  loan_id        uuid not null references public.loans(id) on delete cascade,
+  installment_id uuid references public.installments(id) on delete set null,
+  nasabah_id     uuid not null references public.profiles(id) on delete cascade,
+  petugas_id     uuid references public.profiles(id) on delete set null,
+  amount         bigint not null check (amount <> 0),   -- v2.0: positif = setoran, negatif = koreksi (void)
+  paid_at        timestamptz not null default now(),
+  note           text default '',
+  void_of        uuid references public.payments(id) on delete set null,  -- koreksi: menunjuk transaksi asal
+  voided_at      timestamptz,                          -- diisi saat transaksi ini dikoreksi
+  void_reason    text default '',
+  created_at     timestamptz not null default now()
+);
+create index idx_pay_loan    on public.payments(loan_id);
+create index idx_pay_petugas on public.payments(petugas_id, paid_at);
+create index idx_pay_nasabah on public.payments(nasabah_id);
+create index idx_pay_void    on public.payments(void_of) where void_of is not null;
+
+-- 6c. COLLECTION_ROUTES: penugasan nasabah → petugas (v2.0) ------------------
+create table public.collection_routes (
+  id         uuid primary key default gen_random_uuid(),
+  petugas_id uuid not null references public.profiles(id) on delete cascade,
+  nasabah_id uuid not null references public.profiles(id) on delete cascade,
+  wilayah    text default '',
+  aktif      boolean not null default true,
+  created_at timestamptz not null default now(),
+  unique (petugas_id, nasabah_id)
+);
+create index idx_route_petugas on public.collection_routes(petugas_id) where aktif;
+create index idx_route_nasabah on public.collection_routes(nasabah_id) where aktif;
+
+-- 6d. CALON NASABAH: didaftarkan petugas di lapangan (M6b) --------------------
+-- Owner meng-convert jadi akun via GoTrue Admin + tandai jadi_nasabah.
+create table public.calon_nasabah (
+  id               uuid primary key default gen_random_uuid(),
+  petugas_id       uuid not null references public.profiles(id) on delete cascade,
+  nama             text not null default '',
+  nik              text not null default '',
+  phone            text not null default '',
+  alamat           text default '',
+  wilayah          text default '',
+  ktp_path         text default '',   -- path di bucket kyc-documents: calon/{petugas_id}/{ts}.jpg
+  status           text not null default 'baru' check (status in ('baru','diproses','jadi_nasabah','ditolak')),
+  owner_note       text default '',
+  converted_user_id uuid references public.profiles(id) on delete set null,
+  created_at       timestamptz not null default now()
+);
+create index idx_calon_petugas on public.calon_nasabah(petugas_id, status);
+create index idx_calon_status  on public.calon_nasabah(status);
+
+-- 7. HELPER: apakah user admin ----------------------------------------
+create or replace function public.is_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from public.profiles where id = auth.uid() and role = 'admin');
+$$;
+
+-- 7b. HELPER: apakah user petugas (v2.0) -------------------------------------
+create or replace function public.is_petugas()
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists(select 1 from public.profiles where id = auth.uid() and role = 'petugas');
+$$;
+
+-- 8. AUTO-CREATE profile saat user baru mendaftar (v2.0: default nasabah) -----
+create or replace function public.handle_new_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  insert into public.profiles (id, role, email, full_name, phone)
+  values (new.id, 'nasabah',
+          coalesce(new.email, ''),
+          coalesce(new.raw_user_meta_data->>'full_name', ''),
+          coalesce(new.raw_user_meta_data->>'phone', ''));
+  return new;
+end;
+$$;
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- 9. RPC: hitung cicilan & generate jadwal saat approve (v2.0: per FREKUENSI)
+create or replace function public.approve_loan(p_loan_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  lr record;
+  pay bigint;
+  due date;
+  step interval;
+begin
+  -- cek admin DULUAN
+  if not public.is_admin() then
+    raise exception 'Only admin can approve loans';
+  end if;
+  select * into lr from public.loans where id = p_loan_id for update;
+  if lr.id is null then
+    raise exception 'Loan tidak ditemukan';
+  end if;
+  if lr.status not in ('submitted','under_review') then
+    raise exception 'Loan is not in an approvable state';
+  end if;
+
+  -- v2.0: bunga flat per periode (15%): total = amount + 15%
+  pay := ceil((lr.amount + lr.amount * lr.interest_rate / 100) / lr.tenor_months)::bigint;
+  step := case when lr.frequency = 'weekly'
+              then make_interval(weeks => 1)
+              else make_interval(months => 1) end;
+
+  update public.loans
+     set status = 'disbursed', monthly_payment = pay,
+         decided_by = auth.uid(), decided_at = now()
+   where id = p_loan_id;
+
+  for i in 1..lr.tenor_months loop
+    due := (current_date + step * i);
+    insert into public.installments (loan_id, seq, due_date, amount)
+    values (p_loan_id, i, due, pay);
+  end loop;
+
+  insert into public.notifications (user_id, title, body, type)
+  values (lr.user_id, 'Pinjaman Disetujui',
+          'Pinjaman Anda sebesar Rp' || lr.amount || ' telah disetujui. Cicilan mingguan/bulanan sebesar Rp' || pay || ' x ' || lr.tenor_months || ' periode. Cicilan pertama jatuh tempo pada ' || (current_date + step)::date,
+          'loan_status');
+end;
+$$;
+
+create or replace function public.reject_loan(p_loan_id uuid, p_reason text)
+returns void language plpgsql security definer set search_path = public as $$
+declare l record; v_reason text;
+begin
+  -- cek admin DULUAN (sebelum baca data; hemat + tidak bocor info status)
+  if not public.is_admin() then
+    raise exception 'Only admin can reject loans';
+  end if;
+  select * into l from public.loans where id = p_loan_id for update;
+  if l.id is null then
+    raise exception 'Loan tidak ditemukan';
+  end if;
+  if l.status not in ('submitted','under_review') then
+    raise exception 'Loan is not in a rejectable state';
+  end if;
+  -- alasan wajib (FR-B5): tolak string kosong/spasi
+  v_reason := btrim(coalesce(p_reason,''));
+  if v_reason = '' then
+    raise exception 'Alasan penolakan wajib diisi';
+  end if;
+  update public.loans
+     set status = 'rejected', reject_reason = v_reason, decided_by = auth.uid(), decided_at = now()
+   where id = p_loan_id;
+  insert into public.notifications (user_id, title, body, type)
+  values (l.user_id, 'Pinjaman Ditolak', 'Maaf, pengajuan pinjaman Anda ditolak. Alasan: ' || v_reason, 'loan_status');
+end;
+$$;
+
+-- 10. RPC: pembayaran TUNAI oleh petugas (v2.0, FR-B6b) -----------------------
+-- v2.0-autoapply: kelebihan mengalir ke cicilan berikutnya (prioritas due terdekat).
+-- Tiap aliran = 1 baris payments (audit 1:1). Total > sisa hutang = DITOLAK.
+-- Pengganti pay_installment untuk bank keliling: catat payments + dukung parsial.
+-- pay_installment lama dipertahankan untuk kompatibilitas admin web v1.0.
+create or replace function public.record_cash_payment(p_installment_id uuid, p_amount bigint, p_note text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  tgt record; lr record;
+  v_to_apply bigint; v_left bigint; cur record;
+  v_loan_total_due bigint; v_flows int;
+begin
+  if not (public.is_petugas() or public.is_admin()) then
+    raise exception 'Hanya petugas atau admin yang dapat mencatat pembayaran';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'Nominal pembayaran harus lebih dari 0';
+  end if;
+  select * into tgt from public.installments where id = p_installment_id for update;
+  if tgt.id is null then
+    raise exception 'Cicilan tidak ditemukan';
+  end if;
+  select * into lr from public.loans where id = tgt.loan_id;
+  if lr.status not in ('disbursed','active') then
+    raise exception 'Pinjaman tidak dalam status berjalan';
+  end if;
+  -- guard total: tidak boleh terima duit melebihi sisa hutang
+  select coalesce(sum(i.amount - coalesce(i.amount_paid,0)),0) into v_loan_total_due
+  from public.installments i where i.loan_id = tgt.loan_id and i.status <> 'paid';
+  if p_amount > v_loan_total_due then
+    raise exception 'Nominal melebihi total sisa hutang';
+  end if;
+  v_left := p_amount; v_flows := 0;
+  -- cicilan target dulu
+  update public.installments
+     set amount_paid = coalesce(amount_paid,0) + least(v_left, amount - coalesce(amount_paid,0)),
+         status = case when coalesce(amount_paid,0) + least(v_left, amount - coalesce(amount_paid,0)) >= amount then 'paid' else status end,
+         paid_at = case when coalesce(amount_paid,0) + least(v_left, amount - coalesce(amount_paid,0)) >= amount then now() else paid_at end,
+         paid_by = auth.uid()
+   where id = tgt.id;
+  v_to_apply := least(v_left, tgt.amount - coalesce(tgt.amount_paid,0));
+  v_left := v_left - v_to_apply;
+  insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note)
+  values (tgt.loan_id, tgt.id, lr.user_id, auth.uid(), v_to_apply, coalesce(p_note,''));
+  -- kelebihan mengalir ke cicilan berikutnya (due terdekat = tunggakan dulu)
+  for cur in select * from public.installments
+             where loan_id = tgt.loan_id and status <> 'paid' and id <> tgt.id
+             order by due_date, seq for update
+  loop
+    exit when v_left <= 0;
+    v_to_apply := least(v_left, cur.amount - coalesce(cur.amount_paid,0));
+    if v_to_apply <= 0 then continue; end if;
+    v_flows := v_flows + 1;
+    update public.installments
+       set amount_paid = coalesce(amount_paid,0) + v_to_apply,
+           status = case when coalesce(amount_paid,0) + v_to_apply >= amount then 'paid' else status end,
+           paid_at = case when coalesce(amount_paid,0) + v_to_apply >= amount then now() else paid_at end,
+           paid_by = auth.uid()
+     where id = cur.id;
+    v_left := v_left - v_to_apply;
+    insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note)
+    values (tgt.loan_id, cur.id, lr.user_id, auth.uid(), v_to_apply,
+            'Kelebihan dari cicilan #' || tgt.seq || coalesce(' ' || nullif(p_note,''), ''));
+  end loop;
+  if lr.status = 'disbursed' then
+    update public.loans set status = 'active' where id = lr.id;
+  end if;
+  update public.loans set collected_by = auth.uid() where id = lr.id;
+  insert into public.notifications (user_id, title, body, type)
+  values (lr.user_id,
+    case when not exists (select 1 from public.installments where loan_id = tgt.loan_id and status <> 'paid')
+         then 'Pinjaman Lunas' else 'Pembayaran Diterima' end,
+    'Pembayaran sebesar Rp' || p_amount || ' telah diterima.' ||
+    case when v_flows > 0 then ' Kelebihan otomatis diteruskan ke ' || v_flows || ' cicilan berikutnya.' else '' end ||
+    ' Terima kasih!', 'info');
+  if not exists (select 1 from public.installments where loan_id = tgt.loan_id and status <> 'paid') then
+    update public.loans set status='completed' where id = lr.id;
+  end if;
+end;
+$$;
+
+-- 10a. RPC: KOREKSI salah input via reversal beraudit (M-void) ------------------
+-- Tidak ada UPDATE/DELETE kas: transaksi salah dipertahankan + dibuat lawan negatif.
+-- Petugas: miliknya + hari yang sama. Admin: apa pun. Alasan WAJIB.
+create or replace function public.void_payment(p_payment_id uuid, p_reason text)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  pm record; v_reason text; v_is_admin boolean;
+begin
+  v_reason := btrim(coalesce(p_reason,''));
+  if v_reason = '' then
+    raise exception 'Alasan koreksi wajib diisi';
+  end if;
+  select * into pm from public.payments where id = p_payment_id for update;
+  if pm.id is null then
+    raise exception 'Transaksi tidak ditemukan';
+  end if;
+  if pm.amount <= 0 then
+    raise exception 'Transaksi koreksi tidak dapat dikoreksi lagi';
+  end if;
+  if exists (select 1 from public.payments where void_of = pm.id) then
+    raise exception 'Transaksi ini sudah pernah dikoreksi';
+  end if;
+  v_is_admin := public.is_admin();
+  if not v_is_admin then
+    if not public.is_petugas() then
+      raise exception 'Hanya petugas atau admin yang dapat mengoreksi';
+    end if;
+    if pm.petugas_id is distinct from auth.uid() then
+      raise exception 'Petugas hanya dapat mengoreksi transaksi miliknya sendiri';
+    end if;
+    if pm.paid_at::date <> current_date then
+      raise exception 'Koreksi mandiri hanya untuk transaksi hari ini. Hubungi owner.';
+    end if;
+  end if;
+  -- baris lawan negatif
+  insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note, void_of, void_reason)
+  values (pm.loan_id, pm.installment_id, pm.nasabah_id, auth.uid(),
+          -pm.amount, 'KOREKSI: ' || v_reason, pm.id, v_reason);
+  update public.payments set voided_at = now(), void_reason = v_reason where id = pm.id;
+  -- kembalikan amount_paid cicilan
+  if pm.installment_id is not null then
+    update public.installments
+       set amount_paid = greatest(0, coalesce(amount_paid,0) - pm.amount)
+     where id = pm.installment_id;
+    update public.installments
+       set status = case when amount_paid >= amount then 'paid' else 'unpaid' end,
+           paid_at = case when amount_paid >= amount then paid_at else null end
+     where id = pm.installment_id;
+  end if;
+  -- loan bisa balik dari completed bila ada cicilan belum lunas
+  update public.loans
+     set status = case when status = 'completed'
+                       and exists (select 1 from public.installments
+                                   where loan_id = pm.loan_id and status <> 'paid')
+                       then 'active' else status end
+   where id = pm.loan_id;
+  -- notifikasi ke nasabah
+  insert into public.notifications (user_id, title, body, type)
+  select l.user_id, 'Koreksi Pembayaran',
+         'Terdapat koreksi pencatatan pembayaran sebesar Rp' || pm.amount ||
+         '. Alasan: ' || v_reason || '. Sisa hutang Anda telah disesuaikan.', 'info'
+  from public.loans l where l.id = pm.loan_id;
+end;
+$$;
+
+-- 10a2. RPC: koreksi + langsung catat benar ATOMIC (M-void2) ------------------
+-- void_payment + record_cash_payment dalam 1 transaksi: gagal di mana pun = rollback total.
+create or replace function public.void_and_repay(p_payment_id uuid, p_reason text, p_correct_amount bigint, p_correct_note text)
+returns void language plpgsql security definer set search_path = public as $$
+declare pm record; v_remaining bigint;
+begin
+  if p_correct_amount is null or p_correct_amount <= 0 then
+    raise exception 'Nominal yang benar harus lebih dari 0';
+  end if;
+  select * into pm from public.payments where id = p_payment_id;
+  if pm.id is null then
+    raise exception 'Transaksi tidak ditemukan';
+  end if;
+  if pm.amount <= 0 then
+    raise exception 'Transaksi koreksi tidak dapat dikoreksi lagi';
+  end if;
+  if exists (select 1 from public.payments where void_of = pm.id) then
+    raise exception 'Transaksi ini sudah pernah dikoreksi';
+  end if;
+  if pm.installment_id is null then
+    raise exception 'Transaksi ini tidak terikat cicilan';
+  end if;
+  -- sisa setelah void (izin dicek di dalam void_payment/record_cash_payment)
+  select (i.amount - coalesce(i.amount_paid, 0) + pm.amount) into v_remaining
+  from public.installments i where i.id = pm.installment_id;
+  if p_correct_amount > v_remaining then
+    raise exception 'Nominal benar melebihi sisa cicilan setelah koreksi';
+  end if;
+  perform public.void_payment(p_payment_id, p_reason);
+  perform public.record_cash_payment(pm.installment_id, p_correct_amount, coalesce(p_correct_note, ''));
+end;
+$$;
+
+-- 10b. RPC lama: tandai cicilan lunas (admin; dipertahankan utk admin web v1.0) --
+-- FR-B6 + hardening: admin-first, id jelas, hanya untuk loan berjalan
+create or replace function public.pay_installment(p_installment_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare ins record; v_loan_status loan_status; v_nasabah uuid;
+begin
+  if not public.is_admin() then
+    raise exception 'Only admin can mark installments as paid';
+  end if;
+  select * into ins from public.installments where id = p_installment_id for update;
+  if ins.id is null then
+    raise exception 'Cicilan tidak ditemukan';
+  end if;
+  if ins.status = 'paid' then return; end if;  -- idempotent
+  select status into v_loan_status from public.loans where id = ins.loan_id;
+  if v_loan_status is null then
+    raise exception 'Data pinjaman tidak ditemukan';
+  end if;
+  -- cegah pay cicilan milik loan yang belum dicairkan / sudah final
+  if v_loan_status not in ('disbursed','active') then
+    raise exception 'Pinjaman tidak dalam status berjalan';
+  end if;
+  update public.installments
+     set status='paid', amount_paid = ins.amount, paid_at=now(), paid_by=auth.uid()
+   where id = p_installment_id;
+  -- v2.0: catat juga ke payments agar rekap setoran konsisten dengan installments
+  select user_id into v_nasabah from public.loans where id = ins.loan_id;
+  insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note)
+  values (ins.loan_id, ins.id, v_nasabah, auth.uid(),
+          ins.amount - coalesce(ins.amount_paid, 0), 'pelunasan via admin web');
+  insert into public.notifications (user_id, title, body, type)
+  values (v_nasabah, 'Cicilan Lunas', 'Pembayaran cicilan ke-' || ins.seq || ' sebesar Rp' || ins.amount || ' telah diterima. Terima kasih!', 'info');
+  -- jika semua lunas, loan selesai
+  if not exists (select 1 from public.installments where loan_id = ins.loan_id and status <> 'paid') then
+    update public.loans set status='completed' where id = ins.loan_id;
+  end if;
+end;
+$$;
+
+-- 11. UPDATED_AT trigger --------------------------------------------------
+create or replace function public.touch_updated_at()
+returns trigger language plpgsql as $$
+begin new.updated_at = now(); return new; end;
+$$;
+create trigger profiles_touch before update on public.profiles
+  for each row execute function public.touch_updated_at();
+
+-- 12. RLS ------------------------------------------------------------------
+alter table public.profiles       enable row level security;
+alter table public.kyc_documents  enable row level security;
+alter table public.loans          enable row level security;
+alter table public.installments   enable row level security;
+alter table public.notifications  enable row level security;
+
+-- profiles: user lihat diri sendiri; admin lihat semua
+-- (TANPA policy insert: profile hanya dibuat oleh trigger handle_new_user,
+--  supaya user tidak bisa self-insert dengan role='admin')
+create policy "own profile"  on public.profiles for select using (auth.uid() = id or public.is_admin());
+create policy "update own"   on public.profiles for update using (auth.uid() = id or public.is_admin());
+
+-- Guard: peminjam tidak boleh mengubah role / kyc_status sendiri (self-escalation)
+create or replace function public.profiles_guard_update()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if not public.is_admin() then
+    if new.role is distinct from old.role or new.kyc_status is distinct from old.kyc_status then
+      raise exception 'Tidak diizinkan mengubah role/kyc_status sendiri';
+    end if;
+  end if;
+  return new;
+end;
+$$;
+create trigger profiles_guard before update on public.profiles
+  for each row execute function public.profiles_guard_update();
+
+-- kyc_documents
+create policy "own kyc read"   on public.kyc_documents for select using (auth.uid() = user_id or public.is_admin());
+create policy "own kyc write"  on public.kyc_documents for insert with check (auth.uid() = user_id);
+create policy "admin kyc upd"  on public.kyc_documents for delete using (public.is_admin());
+
+-- emergency_contacts: borrower kelola miliknya; admin baca (+hapus)
+alter table public.emergency_contacts enable row level security;
+create policy "own ec read"   on public.emergency_contacts for select using (auth.uid() = user_id or public.is_admin());
+create policy "own ec write"  on public.emergency_contacts for insert with check (auth.uid() = user_id);
+create policy "own ec upd"    on public.emergency_contacts for update using (auth.uid() = user_id);
+create policy "own ec del"    on public.emergency_contacts for delete using (auth.uid() = user_id or public.is_admin());
+
+-- loans: nasabah insert & baca miliknya; admin semua + update status;
+-- v2.0: petugas baca loans nasabah dalam rute aktifnya
+create policy "own loans read"  on public.loans for select using (auth.uid() = user_id or public.is_admin());
+create policy "own loans ins"   on public.loans for insert with check (auth.uid() = user_id and status = 'submitted');
+create policy "admin loans upd" on public.loans for update using (public.is_admin());
+create policy "route loans read" on public.loans for select to authenticated using (
+  exists (select 1 from public.collection_routes r
+          where r.aktif and r.petugas_id = auth.uid() and r.nasabah_id = loans.user_id)
+);
+
+-- installments: read-only utk nasabah miliknya; admin kelola;
+-- v2.0: petugas baca cicilan nasabah dalam rute aktifnya
+create policy "own inst read"  on public.installments for select using (
+  exists (select 1 from public.loans l where l.id = loan_id and (l.user_id = auth.uid() or public.is_admin()))
+);
+create policy "admin inst upd" on public.installments for update using (public.is_admin());
+create policy "route inst read" on public.installments for select to authenticated using (
+  exists (select 1 from public.loans l
+          join public.collection_routes r on r.aktif and r.nasabah_id = l.user_id
+          where l.id = installments.loan_id and r.petugas_id = auth.uid())
+);
+
+alter table public.payments enable row level security;
+alter table public.collection_routes enable row level security;
+create policy "pay read" on public.payments for select
+  using (auth.uid() = nasabah_id or auth.uid() = petugas_id or public.is_admin() or public.is_petugas());
+create policy "pay write petugas" on public.payments for insert
+  with check (public.is_petugas() or public.is_admin());
+create policy "route read" on public.collection_routes for select
+  using (auth.uid() = nasabah_id or auth.uid() = petugas_id or public.is_admin());
+create policy "route admin write" on public.collection_routes for insert
+  with check (public.is_admin());
+create policy "route admin upd" on public.collection_routes for update
+  using (public.is_admin());
+create policy "route admin del" on public.collection_routes for delete
+  using (public.is_admin());
+
+-- calon_nasabah (M6b): petugas insert + baca miliknya; owner kelola
+alter table public.calon_nasabah enable row level security;
+create policy "calon petugas write" on public.calon_nasabah for insert to authenticated
+  with check (auth.uid() = petugas_id and (public.is_petugas() or public.is_admin()));
+create policy "calon petugas read" on public.calon_nasabah for select to authenticated
+  using (auth.uid() = petugas_id or public.is_admin());
+create policy "calon admin upd" on public.calon_nasabah for update to authenticated
+  using (public.is_admin());
+
+-- storage kyc-documents (M6b): izinkan prefix calon/ untuk petugas/owner
+-- (policy "kyc insert own folder" & "kyc select own or admin" di-update di server:
+--  folder[1]='calon' diizinkan bila is_petugas() atau is_admin())
+
+-- notifications
+create policy "own notif read" on public.notifications for select using (auth.uid() = user_id or public.is_admin());
+create policy "own notif upd"  on public.notifications for update using (auth.uid() = user_id);
+
+-- 13. INDEX ------------------------------------------------------------------
+create index idx_loans_user      on public.loans(user_id);
+create index idx_loans_status    on public.loans(status);
+create index idx_inst_loan       on public.installments(loan_id);
+create index idx_notif_user      on public.notifications(user_id, is_read);
+create index idx_kyc_user        on public.kyc_documents(user_id);
+
+-- 14. SETELAH INI, jalankan manual di Dashboard:
+--   a. Storage > New bucket: name = 'kyc-documents', PRIVATE bucket.
+--   b. Storage > Policies > New policy > custom (SQL) pada bucket kyc-documents:
+--        INSERT: (bucket_id = 'kyc-documents'::text) AND (auth.uid()::text = (storage.foldername(name))[1])
+--        SELECT: (bucket_id = 'kyc-documents'::text) AND (auth.uid()::text = (storage.foldername(name))[1] OR public.is_admin())
+--   c. Promote akun admin pertama (ganti UUID-nya dari tabel auth.users):
+--        update public.profiles set role='admin' where id = 'UUID-ANDA';
+-- ============================================================
