@@ -6,7 +6,7 @@ import {
   fetchLoan,
   fetchLoanDocuments,
   kycDocSignedUrl,
-  payInstallment,
+  recordCashPayment,
   rejectLoan,
   subscribeToTables,
 } from '../lib/api'
@@ -46,6 +46,32 @@ export default function LoanDetail() {
   const [finalAmount, setFinalAmount] = useState('')
   const [docs, setDocs] = useState<LoanDocument[]>([])
   const [docUrls, setDocUrls] = useState<Record<string, string>>({})
+  // v3.1: catat bayar tunai per cicilan (admin, tanpa petugas)
+  const [payTarget, setPayTarget] = useState<Installment | null>(null)
+  const [payAmount, setPayAmount] = useState('')
+  const [payNote, setPayNote] = useState('')
+
+  const doPay = async () => {
+    if (!payTarget) return
+    const v = Number(payAmount.replace(/[^0-9]/g, ''))
+    if (!Number.isFinite(v) || v <= 0) {
+      setActionErr('Nominal bayar harus angka lebih dari 0.')
+      return
+    }
+    setActionErr(null)
+    setBusy(true)
+    try {
+      await recordCashPayment(payTarget.id, Math.round(v), payNote.trim())
+      setPayTarget(null)
+      setPayAmount('')
+      setPayNote('')
+      await load()
+    } catch (e) {
+      setActionErr(errMsg(e))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const load = useCallback(async () => {
     if (!id) return
@@ -378,10 +404,14 @@ export default function LoanDetail() {
                   {i.status !== 'paid' && (
                     <button
                       disabled={busy}
-                      onClick={() => void act(() => payInstallment(i.id))}
+                      onClick={() => {
+                        setPayTarget(i)
+                        setPayAmount(String(i.amount - (Number(i.amount_paid) || 0)))
+                        setPayNote('')
+                      }}
                       className="text-xs font-medium text-emerald-600 hover:underline disabled:opacity-50"
                     >
-                      Tandai Lunas
+                      💵 Catat Bayar
                     </button>
                   )}
                 </td>
@@ -397,6 +427,65 @@ export default function LoanDetail() {
           </tbody>
         </table>
       </div>
+
+      {/* Modal catat bayar tunai (v3.1: admin terima langsung, tanpa petugas) */}
+      {payTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setPayTarget(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 className="text-lg font-bold text-slate-800">💵 Catat Bayar Tunai</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Cicilan #{payTarget.seq} • tagihan {fmtRp(payTarget.amount)} •
+              sudah masuk {fmtRp(Number(payTarget.amount_paid) || 0)} • sisa{' '}
+              {fmtRp(payTarget.amount - (Number(payTarget.amount_paid) || 0))}
+            </p>
+            <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+              Kelebihan otomatis diteruskan ke cicilan berikutnya. Total melebihi
+              sisa hutang akan ditolak.
+            </div>
+            <label className="mt-4 block text-sm font-medium text-slate-700">
+              Nominal diterima (Rp)
+            </label>
+            <input
+              autoFocus
+              inputMode="numeric"
+              value={payAmount}
+              onChange={(e) => setPayAmount(e.target.value)}
+              placeholder="cth: 120000"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+            <label className="mt-3 block text-sm font-medium text-slate-700">
+              Catatan (opsional)
+            </label>
+            <input
+              value={payNote}
+              onChange={(e) => setPayNote(e.target.value)}
+              placeholder="cth: bayar di rumah, via transfer"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setPayTarget(null)}
+                className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
+              >
+                Batal
+              </button>
+              <button
+                disabled={busy || !payAmount.trim()}
+                onClick={() => void doPay()}
+                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {busy ? 'Menyimpan…' : 'Simpan Pembayaran'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -467,6 +467,20 @@ export async function payInstallment(installmentId: string): Promise<void> {
   if (error) throw error
 }
 
+/** v3.1: catat bayar tunai (penuh/parsial + auto-apply). Admin & petugas. */
+export async function recordCashPayment(
+  installmentId: string,
+  amount: number,
+  note = '',
+): Promise<void> {
+  const { error } = await supabase.rpc('record_cash_payment', {
+    p_installment_id: installmentId,
+    p_amount: amount,
+    p_note: note,
+  })
+  if (error) throw error
+}
+
 /** Admin verifikasi / tolak KYC (diizinkan RLS utk admin) */
 export async function setKycStatus(
   userId: string,

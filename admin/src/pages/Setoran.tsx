@@ -90,8 +90,8 @@ export default function Setoran() {
     <div className="space-y-4">
       <h1 className="text-2xl font-bold text-slate-800">Setoran Petugas</h1>
       <p className="-mt-2 text-sm text-slate-500">
-        Tunai tercatat per petugas per hari. Cocokkan dengan uang fisik saat petugas
-        setor ke Anda — kalau beda, tanyakan selisihnya. 🤝
+        Tunai tercatat per pencatat per hari (petugas lapangan / admin).
+        Cocokkan dengan uang fisik — kalau beda, tanyakan selisihnya. 🤝
       </p>
 
       {error && (
@@ -133,7 +133,7 @@ export default function Setoran() {
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
                 <th className="px-4 py-3">Tanggal</th>
-                <th className="px-4 py-3">Petugas</th>
+                <th className="px-4 py-3">Pencatat</th>
                 <th className="px-4 py-3">Transaksi</th>
                 <th className="px-4 py-3">Total Tunai</th>
                 <th className="px-4 py-3" />
