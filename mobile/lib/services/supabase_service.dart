@@ -161,6 +161,7 @@ class SupabaseService {
   static bool isValidIdPhone(String v) => idPhoneRegex.hasMatch(v.trim());
 
   /// Melengkapi data KTP full (model koperasi): 14 field.
+  /// v3.0: + alamat tinggal saat ini + alamat kantor + share location (opsional).
   Future<void> updateKycData({
     required String fullName,
     required String nik,
@@ -178,6 +179,12 @@ class SupabaseService {
     required String pekerjaan,
     required String kewarganegaraan,
     required String phone,
+    String currentAddress = '',
+    String officeAddress = '',
+    double? homeLat,
+    double? homeLng,
+    double? officeLat,
+    double? officeLng,
   }) async {
     final uid = currentUserId;
     if (uid == null) throw AppDataException('Belum login.');
@@ -202,6 +209,12 @@ class SupabaseService {
         'pekerjaan': pekerjaan,
         'kewarganegaraan': kewarganegaraan,
         'phone': phone.trim(),
+        'current_address': currentAddress.trim(),
+        'office_address': officeAddress.trim(),
+        'home_lat': homeLat,
+        'home_lng': homeLng,
+        'office_lat': officeLat,
+        'office_lng': officeLng,
       }).eq('id', uid);
     } catch (e) {
       throw AppDataException(_friendly(e));
@@ -332,27 +345,38 @@ class SupabaseService {
 
   // ============================ LOANS ===================================
 
-  /// Submit pinjaman baru (v2.0: + frequency mingguan/bulanan).
-  /// interest_rate, monthly_payment, dan status di-override server-side
-  /// oleh trigger loans_guard — client hanya mengirim kolom input.
+  /// Submit pinjaman baru (v3.0: tenor mingguan 1-52 / bulanan 1|3).
+  /// requested_amount dicatat (usulan dari WA); amount final ditentukan admin.
+  /// + jaminan (tipe + detail). interest_rate/status di-override server.
   Future<void> submitLoan({
     required int amount,
     required int tenorMonths,
     required String frequency, // 'weekly' | 'monthly'
     required String purpose,
+    String collateralType = '',
+    String collateralDetail = '',
   }) async {
     final uid = currentUserId;
     if (uid == null) throw AppDataException('Belum login.');
     if (frequency != 'weekly' && frequency != 'monthly') {
       throw AppDataException('Frekuensi tidak valid.');
     }
+    if (frequency == 'monthly' && tenorMonths != 1 && tenorMonths != 3) {
+      throw AppDataException('Tenor bulanan: pilih 1 atau 3 bulan.');
+    }
+    if (frequency == 'weekly' && (tenorMonths < 1 || tenorMonths > 52)) {
+      throw AppDataException('Tenor mingguan: 1–52 minggu.');
+    }
     try {
       await client.from('loans').insert({
         'user_id': uid,
         'amount': amount,
+        'requested_amount': amount,
         'tenor_months': tenorMonths,
         'frequency': frequency,
         'purpose': purpose,
+        'collateral_type': collateralType.trim(),
+        'collateral_detail': collateralDetail.trim(),
       });
     } catch (e) {
       throw AppDataException(_friendly(e));
@@ -640,6 +664,52 @@ class SupabaseService {
         'p_correct_amount': correctAmount,
         'p_correct_note': correctNote,
       }).timeout(const Duration(seconds: 20));
+    } catch (e) {
+      throw AppDataException(_friendly(e));
+    }
+  }
+
+  /// Upload dokumen per pinjaman (v3.0: foto jaminan dkk) ke
+  /// {uid}/loan/{loanId}/{timestamp}.jpg + catat di loan_documents.
+  Future<void> uploadLoanDocument({
+    required String loanId,
+    required String docType, // 'jaminan' | 'pendukung'
+    required File file,
+    required String contentType,
+  }) async {
+    final uid = currentUserId;
+    if (uid == null) throw AppDataException('Belum login.');
+    final ext = contentType.contains('png') ? 'png' : 'jpg';
+    final path =
+        '$uid/loan/$loanId/${DateTime.now().millisecondsSinceEpoch}.$ext';
+    try {
+      await client.storage.from(bucket).upload(
+            path,
+            file,
+            fileOptions: const FileOptions(cacheControl: '3600', upsert: true),
+          );
+      await client.from('loan_documents').insert({
+        'loan_id': loanId,
+        'doc_type': docType,
+        'storage_path': path,
+      });
+    } catch (e) {
+      throw AppDataException(_friendly(e));
+    }
+  }
+
+  /// Daftar dokumen suatu pinjaman (jaminan + pendukung).
+  Future<List<Map<String, dynamic>>> fetchLoanDocuments(String loanId) async {
+    try {
+      final rows = await client
+          .from('loan_documents')
+          .select()
+          .eq('loan_id', loanId)
+          .order('created_at', ascending: false)
+          .timeout(const Duration(seconds: 15));
+      return (rows as List)
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList();
     } catch (e) {
       throw AppDataException(_friendly(e));
     }

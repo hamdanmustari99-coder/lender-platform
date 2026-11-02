@@ -35,6 +35,9 @@ class ApplyLoanScreen extends StatefulWidget {
 class _ApplyLoanScreenState extends State<ApplyLoanScreen> {
   final _svc = SupabaseService.instance;
   final _purpose = TextEditingController();
+  // v3.0: jaminan (teks; foto di halaman detail pinjaman setelah loan terbit)
+  final _collType = TextEditingController();
+  final _collDetail = TextEditingController();
 
   double _amount = 2000000; // nilai slider (Rp)
   int _tenor = 10;
@@ -44,11 +47,17 @@ class _ApplyLoanScreenState extends State<ApplyLoanScreen> {
   @override
   void dispose() {
     _purpose.dispose();
+    _collType.dispose();
+    _collDetail.dispose();
     super.dispose();
   }
 
-  /// Tenor maksimal mengikuti frekuensi: mingguan s/d 52, bulanan s/d 12.
-  int get _maxTenor => _frequency == 'weekly' ? 52 : 12;
+  /// Tenor maksimal mengikuti frekuensi: mingguan s/d 52, bulanan 1|3 (v3.0).
+  int get _maxTenor => _frequency == 'weekly' ? 52 : 3;
+
+  /// Opsi tenor yang ditampilkan: mingguan 1-52, bulanan cuma 1 & 3 (v3.0).
+  List<int> get _tenorOptions =>
+      _frequency == 'weekly' ? List.generate(52, (i) => i + 1) : [1, 3];
 
   int get _amountRounded => (_amount / 50000).round() * 50000;
   int get _periodic => estimatePeriodicPayment(_amountRounded, _tenor);
@@ -102,6 +111,8 @@ class _ApplyLoanScreenState extends State<ApplyLoanScreen> {
         tenorMonths: _tenor,
         frequency: _frequency,
         purpose: _purpose.text.trim(),
+        collateralType: _collType.text.trim(),
+        collateralDetail: _collDetail.text.trim(),
       );
       if (!mounted) return;
       showInfo(context, 'Pengajuan terkirim! Pantau statusnya di menu Pinjaman.');
@@ -285,14 +296,13 @@ class _ApplyLoanScreenState extends State<ApplyLoanScreen> {
           Wrap(
             spacing: 8,
             runSpacing: 4,
-            children: List.generate(_maxTenor, (i) {
-              final t = i + 1;
+            children: _tenorOptions.map((t) {
               return ChoiceChip(
                 label: Text('$t'),
                 selected: _tenor == t,
                 onSelected: (_) => setState(() => _tenor = t),
               );
-            }),
+            }).toList(),
           ),
           const SizedBox(height: 24),
 
@@ -305,6 +315,41 @@ class _ApplyLoanScreenState extends State<ApplyLoanScreen> {
               hintText: 'Contoh: modal usaha, renovasi rumah, pendidikan',
               prefixIcon: Icon(Icons.flag_outlined),
             ),
+          ),
+          const SizedBox(height: 24),
+
+          // ---- Jaminan (v3.0) ----
+          Text('Jaminan',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700)),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: _collType,
+            decoration: const InputDecoration(
+              labelText: 'Jenis jaminan',
+              hintText: 'Contoh: BPKB motor, sertifikat, emas',
+              prefixIcon: Icon(Icons.shield_outlined),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _collDetail,
+            maxLines: 2,
+            decoration: const InputDecoration(
+              labelText: 'Detail jaminan (opsional)',
+              hintText: 'Contoh: BPKB Beat 2021 nopol D 1234 AB',
+              prefixIcon: Icon(Icons.description_outlined),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Foto jaminan bisa dilampirkan di halaman detail pinjaman setelah pengajuan terkirim.',
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: cs.onSurfaceVariant),
           ),
           const SizedBox(height: 24),
 

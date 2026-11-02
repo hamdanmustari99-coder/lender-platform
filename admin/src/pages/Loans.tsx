@@ -52,7 +52,15 @@ export default function Loans() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-slate-800">Pinjaman</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold text-slate-800">Pinjaman</h1>
+        <Link
+          to="/loans/new"
+          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+        >
+          + Buatkan Pinjaman
+        </Link>
+      </div>
 
       {error && (
         <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
@@ -96,6 +104,7 @@ export default function Loans() {
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
               <th className="px-4 py-3">Borrower</th>
               <th className="px-4 py-3">Jumlah</th>
+              <th className="px-4 py-3">Frekuensi</th>
               <th className="px-4 py-3">Tenor</th>
               <th className="px-4 py-3">Cicilan/Bln</th>
               <th className="px-4 py-3">Status</th>
@@ -114,8 +123,20 @@ export default function Loans() {
                 </td>
                 <td className="px-4 py-3 font-medium text-slate-800">
                   {fmtRp(l.amount)}
+                  {l.requested_amount != null && l.requested_amount !== l.amount && (
+                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                      diusulkan {fmtRp(l.requested_amount)}
+                    </span>
+                  )}
                 </td>
-                <td className="px-4 py-3 text-slate-600">{l.tenor_months} bln</td>
+                <td className="px-4 py-3 text-slate-600">
+                  {l.frequency === 'weekly' ? 'Mingguan' : 'Bulanan'}
+                </td>
+                <td className="px-4 py-3 text-slate-600">
+                  {l.frequency === 'weekly'
+                    ? `${l.tenor_months} minggu`
+                    : `${l.tenor_months} bln`}
+                </td>
                 <td className="px-4 py-3 text-slate-600">{fmtRp(l.monthly_payment)}</td>
                 <td className="px-4 py-3">
                   <span
@@ -139,7 +160,7 @@ export default function Loans() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-slate-400">
+                <td colSpan={8} className="py-8 text-center text-slate-400">
                   Tidak ada pinjaman yang cocok
                 </td>
               </tr>

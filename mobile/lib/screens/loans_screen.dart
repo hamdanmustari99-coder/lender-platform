@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
 import '../services/supabase_service.dart';
@@ -204,6 +207,8 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
   final _svc = SupabaseService.instance;
   Loan? _loan;
   List<Installment>? _installments;
+  List<Map<String, dynamic>> _docs = [];
+  bool _uploadingDoc = false;
   String? _error;
 
   @override
@@ -216,15 +221,67 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
     try {
       final loan = await _svc.fetchLoan(widget.loanId);
       final inst = await _svc.fetchInstallments(widget.loanId);
+      List<Map<String, dynamic>> docs = [];
+      try {
+        docs = await _svc.fetchLoanDocuments(widget.loanId);
+      } catch (_) {}
       if (!mounted) return;
       setState(() {
         _loan = loan;
         _installments = inst;
+        _docs = docs;
         _error = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
+    }
+  }
+
+  Future<void> _addDoc() async {
+    final src = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_rounded),
+              title: const Text('Ambil foto dengan kamera'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_rounded),
+              title: const Text('Pilih dari galeri'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (src == null) return;
+    final picker = ImagePicker();
+    final shot = await picker.pickImage(
+      source: src,
+      maxWidth: 1600,
+      imageQuality: 80,
+    );
+    if (shot == null) return;
+    setState(() => _uploadingDoc = true);
+    try {
+      await _svc.uploadLoanDocument(
+        loanId: widget.loanId,
+        docType: 'jaminan',
+        file: File(shot.path),
+        contentType: 'image/jpeg',
+      );
+      if (!mounted) return;
+      showInfo(context, 'Foto jaminan tersimpan ✅');
+      await _load();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _uploadingDoc = false);
     }
   }
 
@@ -406,6 +463,21 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
                     value: Text(
                         loan.purpose.isEmpty ? '-' : loan.purpose),
                   ),
+                  // v3.0: usulan vs final + jaminan
+                  if (loan.requestedAmount != null &&
+                      loan.requestedAmount != loan.amount)
+                    InfoRow(
+                      label: 'Usulan awal',
+                      value: Text(rupiahText(loan.requestedAmount!)),
+                    ),
+                  if (loan.collateralType.isNotEmpty)
+                    InfoRow(
+                      label: 'Jaminan',
+                      value: Text(loan.collateralType +
+                          (loan.collateralDetail.isNotEmpty
+                              ? ' — ${loan.collateralDetail}'
+                              : '')),
+                    ),
                   InfoRow(
                     label: 'Diajukan',
                     value: Text(
@@ -422,6 +494,78 @@ class _LoanDetailScreenState extends State<LoanDetailScreen> {
               ),
             ),
           ),
+
+          // ---- Dokumen jaminan (v3.0) ----
+          const SizedBox(height: 8),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Dokumen Jaminan',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700)),
+              TextButton.icon(
+                onPressed: _uploadingDoc ? null : _addDoc,
+                icon: _uploadingDoc
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.add_a_photo_outlined, size: 18),
+                label: Text(
+                    _uploadingDoc ? 'Mengunggah...' : 'Tambah foto'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (_docs.isEmpty)
+            Card(
+              child: ListTile(
+                leading: Icon(Icons.shield_outlined,
+                    color: cs.onSurfaceVariant),
+                title: const Text('Belum ada foto jaminan'),
+                subtitle: const Text(
+                    'Lampirkan foto BPKB / sertifikat / barang jaminan di sini.'),
+              ),
+            )
+          else
+            ..._docs.map(
+              (d) => Card(
+                child: ListTile(
+                  leading: Icon(Icons.image_outlined,
+                      color: cs.onSurfaceVariant),
+                  title: Text((d['doc_type'] ?? 'jaminan') as String),
+                  subtitle: Text(dateTimeFormat.format(
+                      DateTime.parse(d['created_at'] as String).toLocal())),
+                  trailing: TextButton(
+                    child: const Text('Lihat'),
+                    onPressed: () async {
+                      try {
+                        final url = await _svc.createKycSignedUrl(
+                            (d['storage_path'] ?? '') as String);
+                        if (!context.mounted) return;
+                        showDialog(
+                          context: context,
+                          builder: (context) => Dialog(
+                            child: Image.network(url,
+                                fit: BoxFit.contain,
+                                errorBuilder: (c, e, s) => const Padding(
+                                      padding: EdgeInsets.all(24),
+                                      child: Text(
+                                          'Gagal memuat gambar.'),
+                                    )),
+                          ),
+                        );
+                      } catch (e) {
+                        if (context.mounted) showError(context, e);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ),
 
           // ---- Jadwal cicilan ----
           const SizedBox(height: 8),

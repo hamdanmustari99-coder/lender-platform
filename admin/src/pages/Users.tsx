@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchProfiles, subscribeToTables } from '../lib/api'
+import { fetchNasabahTelatFlag, fetchProfiles, subscribeToTables } from '../lib/api'
 import type { Profile } from '../lib/api'
 import { fmtDate, KYC_STATUS_CLASS, KYC_STATUS_LABEL, errMsg } from '../lib/format'
 
@@ -9,11 +9,29 @@ export default function Users() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [telatMap, setTelatMap] = useState<Map<string, boolean>>(new Map())
 
   const load = useCallback(async () => {
     try {
-      setProfiles(await fetchProfiles())
+      const list = await fetchProfiles()
+      setProfiles(list)
       setError(null)
+      // Badge Telat: 50 user pertama saja, cache di Map state
+      const first50 = list.slice(0, 50)
+      const entries = await Promise.all(
+        first50.map(async (p) => {
+          try {
+            return [p.id, await fetchNasabahTelatFlag(p.id)] as const
+          } catch {
+            return null
+          }
+        }),
+      )
+      setTelatMap((prev) => {
+        const next = new Map(prev)
+        for (const e of entries) if (e) next.set(e[0], e[1])
+        return next
+      })
     } catch (e) {
       setError(errMsg(e))
     } finally {
@@ -60,6 +78,8 @@ export default function Users() {
               <th className="px-4 py-3">Telepon</th>
               <th className="px-4 py-3">Role</th>
               <th className="px-4 py-3">KYC</th>
+              <th className="px-4 py-3">Telat</th>
+              <th className="px-4 py-3">Domisili</th>
               <th className="px-4 py-3">Terdaftar</th>
               <th className="px-4 py-3" />
             </tr>
@@ -88,6 +108,26 @@ export default function Users() {
                     {KYC_STATUS_LABEL[p.kyc_status]}
                   </span>
                 </td>
+                <td className="px-4 py-3">
+                  {telatMap.get(p.id) === true ? (
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                      Telat
+                    </span>
+                  ) : telatMap.get(p.id) === false ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                      Lancar
+                    </span>
+                  ) : (
+                    <span className="text-xs text-slate-400">—</span>
+                  )}
+                </td>
+                <td className="max-w-[180px] truncate px-4 py-3 text-xs text-slate-500" title={p.current_address || ''}>
+                  {p.current_address
+                    ? p.current_address.length > 30
+                      ? `${p.current_address.slice(0, 30)}…`
+                      : p.current_address
+                    : '—'}
+                </td>
                 <td className="px-4 py-3 text-xs text-slate-500">
                   {fmtDate(p.created_at)}
                 </td>
@@ -103,7 +143,7 @@ export default function Users() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-slate-400">
+                <td colSpan={9} className="py-8 text-center text-slate-400">
                   Tidak ada user yang cocok
                 </td>
               </tr>

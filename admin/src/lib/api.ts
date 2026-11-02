@@ -24,6 +24,13 @@ export interface Profile {
   birth_date: string | null
   jenis_kelamin: 'L' | 'P' | '' | null
   address: string | null
+  // --- v3.0: domisili + kantor + shareloc ---
+  current_address: string | null
+  office_address: string | null
+  home_lat: number | null
+  home_lng: number | null
+  office_lat: number | null
+  office_lng: number | null
   rt_rw: string | null
   kelurahan: string | null
   kecamatan: string | null
@@ -52,6 +59,10 @@ export interface Loan {
   id: string
   user_id: string
   amount: number
+  // v3.0: usulan nasabah (kalau beda dari final) + jaminan
+  requested_amount: number | null
+  collateral_type: string | null
+  collateral_detail: string | null
   tenor_months: number
   frequency: 'weekly' | 'monthly'
   interest_rate: number
@@ -382,9 +393,63 @@ export function totalLaba(loans: Loan[]): number {
 
 // ---------- RPC (security definer, cek is_admin() di server) ----------
 
-export async function approveLoan(loanId: string): Promise<void> {
-  const { error } = await supabase.rpc('approve_loan', { p_loan_id: loanId })
+export async function approveLoan(loanId: string, finalAmount?: number): Promise<void> {
+  const { error } = await supabase.rpc('approve_loan', {
+    p_loan_id: loanId,
+    ...(finalAmount != null ? { p_amount_override: finalAmount } : {}),
+  })
   if (error) throw error
+}
+
+/** v3.0: admin buatkan pinjaman langsung (nominal WA = final, langsung cair). */
+export async function adminCreateLoan(input: {
+  userId: string
+  amount: number
+  tenor: number
+  frequency: 'weekly' | 'monthly'
+  purpose?: string
+  collateralType?: string
+  collateralDetail?: string
+}): Promise<string> {
+  const { data, error } = await supabase.rpc('admin_create_loan', {
+    p_user_id: input.userId,
+    p_amount: input.amount,
+    p_tenor: input.tenor,
+    p_frequency: input.frequency,
+    p_purpose: input.purpose ?? '',
+    p_collateral_type: input.collateralType ?? '',
+    p_collateral_detail: input.collateralDetail ?? '',
+  })
+  if (error) throw error
+  return data as string
+}
+
+/** v3.0: riwayat telat nasabah (pernah nunggak / bayar lewat due). */
+export async function fetchNasabahTelatFlag(userId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('nasabah_telat_flag', {
+    p_user_id: userId,
+  })
+  if (error) throw error
+  return (data as boolean) ?? false
+}
+
+export interface LoanDocument {
+  id: string
+  loan_id: string
+  doc_type: string
+  storage_path: string
+  created_at: string
+}
+
+/** v3.0: dokumen per pinjaman (foto jaminan dkk). */
+export async function fetchLoanDocuments(loanId: string): Promise<LoanDocument[]> {
+  const { data, error } = await supabase
+    .from('loan_documents')
+    .select('*')
+    .eq('loan_id', loanId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as LoanDocument[]
 }
 
 export async function rejectLoan(loanId: string, reason: string): Promise<void> {

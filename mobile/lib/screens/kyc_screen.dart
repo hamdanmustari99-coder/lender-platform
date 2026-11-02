@@ -1,13 +1,16 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/models.dart';
 import '../services/supabase_service.dart';
 import '../widgets/common.dart';
 
-/// Onboarding KYC model koperasi: full data KTP (14 field) + nomor HP utama
+/// Onboarding KYC model koperasi v3.0: full data KTP (14 field) + nomor HP utama
 /// + 2 kontak darurat + foto KTP & selfie.
 ///
 /// Data profil di-update ke tabel profiles; kontak darurat di-upsert ke
@@ -43,6 +46,19 @@ class _KycScreenState extends State<KycScreen> {
   final _pekerjaan = TextEditingController();
   final _kewarganegaraan = TextEditingController(text: 'WNI');
 
+  // --- v3.0: domisili + kantor + share location ---
+  final _currentAddress = TextEditingController();
+  final _officeAddress = TextEditingController();
+  double? _homeLat;
+  double? _homeLng;
+  double? _officeLat;
+  double? _officeLng;
+  bool _locatingHome = false;
+  bool _locatingOffice = false;
+
+  // --- v3.0: OCR KTP ---
+  bool _scanning = false;
+
   // --- Kontak ---
   final _phone = TextEditingController();
   final _ec1Nama = TextEditingController();
@@ -77,6 +93,12 @@ class _KycScreenState extends State<KycScreen> {
       _pekerjaan.text = p.pekerjaan;
       _kewarganegaraan.text = p.kewarganegaraan.isEmpty ? 'WNI' : p.kewarganegaraan;
       _phone.text = p.phone;
+      _currentAddress.text = p.currentAddress;
+      _officeAddress.text = p.officeAddress;
+      _homeLat = p.homeLat;
+      _homeLng = p.homeLng;
+      _officeLat = p.officeLat;
+      _officeLng = p.officeLng;
     }
     // preload kontak darurat bila sudah pernah isi
     _svc.fetchEmergencyContacts().then((list) {
@@ -101,6 +123,7 @@ class _KycScreenState extends State<KycScreen> {
     for (final c in [
       _nama, _nik, _tempatLahir, _address, _rtRw, _kelurahan, _kecamatan,
       _kota, _provinsi, _agama, _statusKawin, _pekerjaan, _kewarganegaraan,
+      _currentAddress, _officeAddress,
       _phone, _ec1Nama, _ec1Hub, _ec1No, _ec2Nama, _ec2Hub, _ec2No,
     ]) {
       c.dispose();
@@ -163,6 +186,12 @@ class _KycScreenState extends State<KycScreen> {
   String? _req(String? v, String label) =>
       (v == null || v.trim().isEmpty) ? '$label wajib diisi' : null;
 
+  String? _addressValidator(String? v, String label) {
+    if (v == null || v.trim().isEmpty) return '$label wajib diisi';
+    if (v.trim().length < 10) return '$label minimal 10 karakter';
+    return null;
+  }
+
   String? _phoneValidator(String? v) {
     if (v == null || v.trim().isEmpty) return 'Nomor HP wajib diisi';
     if (!SupabaseService.isValidIdPhone(v)) {
@@ -170,6 +199,214 @@ class _KycScreenState extends State<KycScreen> {
     }
     return null;
   }
+
+  // ------------------------------------------------------------------
+  // v3.0: share location (GPS) — pola sama untuk tinggal & kantor.
+  // ------------------------------------------------------------------
+
+  Future<void> _useCurrentLocation({required bool forHome}) async {
+    if (!mounted) return;
+    setState(() {
+      if (forHome) {
+        _locatingHome = true;
+      } else {
+        _locatingOffice = true;
+      }
+    });
+    try {
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied) {
+        if (mounted) showError(context, 'Izin lokasi ditolak.');
+        return;
+      }
+      if (perm == LocationPermission.deniedForever) {
+        if (mounted) {
+          showError(
+            context,
+            'Izin lokasi ditolak permanen. Aktifkan di pengaturan HP.',
+          );
+        }
+        return;
+      }
+      final pos = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+        ),
+      );
+      if (!mounted) return;
+      setState(() {
+        if (forHome) {
+          _homeLat = pos.latitude;
+          _homeLng = pos.longitude;
+        } else {
+          _officeLat = pos.latitude;
+          _officeLng = pos.longitude;
+        }
+      });
+      if (mounted) showInfo(context, 'Lokasi tersimpan.');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) {
+        setState(() {
+          if (forHome) {
+            _locatingHome = false;
+          } else {
+            _locatingOffice = false;
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _openMaps(double lat, double lng) async {
+    final uri = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+    );
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok && mounted) {
+        showError(context, 'Tidak bisa membuka aplikasi maps.');
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // v3.0: OCR KTP — pindai otomatis dari foto KTP.
+  // ------------------------------------------------------------------
+
+  /// Jalankan ML Kit text recognition pada [imageFile], lalu isi
+  /// controller NIK / nama / tanggal lahir bila pola cocok.
+  ///
+  /// Gagal OCR = snackbar error, form tetap bisa diisi manual.
+  Future<void> _scanKtp(File imageFile) async {
+    if (_scanning) return;
+    setState(() => _scanning = true);
+    try {
+      final input = InputImage.fromFilePath(imageFile.path);
+      final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      RecognizedText result;
+      try {
+        result = await recognizer.processImage(input);
+      } finally {
+        await recognizer.close();
+      }
+      final filled = _applyOcrResult(result.text);
+      if (!mounted) return;
+      if (filled == 0) {
+        showError(context, 'Teks KTP tidak terbaca jelas. Isi manual ya.');
+      } else {
+        showInfo(
+          context,
+          'Berhasil mengisi $filled field dari foto KTP. Cek lagi ya.',
+        );
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
+
+  /// Parse teks mentah OCR -> isi controller. Return jumlah field terisi.
+  int _applyOcrResult(String raw) {
+    var filled = 0;
+    final lines = raw
+        .split('\n')
+        .map((l) => l.trim().replaceAll(RegExp(r'\s+'), ' '))
+        .where((l) => l.isNotEmpty)
+        .toList();
+
+    // --- NIK: 16 digit berurutan (toleransi spasi khas OCR). ---
+    final digitsOnly = raw.replaceAll(RegExp(r'[^0-9]'), ' ');
+    final nikMatch = RegExp(r'\b\d{16}\b').firstMatch(raw) ??
+        RegExp(r'\b\d{16}\b').firstMatch(digitsOnly);
+    if (nikMatch != null) {
+      _nik.text = nikMatch.group(0)!;
+      filled++;
+    } else {
+      // Fallback: sambungkan semua digit lalu ambil 16 pertama — umum
+      // bila OCR menyisipkan spasi (mis. "3174 0612 3456 7890").
+      final allDigits = raw.replaceAll(RegExp(r'[^0-9]'), '');
+      if (allDigits.length >= 16) {
+        _nik.text = allDigits.substring(0, 16);
+        filled++;
+      }
+    }
+
+    // --- Nama: heuristik baris setelah label "Nama". ---
+    final namaIdx = lines.indexWhere(
+      (l) => RegExp(r'\bnama\b', caseSensitive: false).hasMatch(l),
+    );
+    String? nama;
+    if (namaIdx >= 0) {
+      // Label bisa satu baris dengan nilai ("Nama : BUDI SANTOSO").
+      final sameLine = RegExp(r'nama\s*:?\s*(.+)$', caseSensitive: false)
+          .firstMatch(lines[namaIdx]);
+      final afterColon = sameLine?.group(1)?.trim();
+      if (afterColon != null &&
+          afterColon.length > 2 &&
+          !RegExp(r'^\d+$').hasMatch(afterColon)) {
+        nama = afterColon;
+      } else {
+        // Nilai di baris berikutnya.
+        for (var i = namaIdx + 1; i < lines.length && i < namaIdx + 3; i++) {
+          final cand = lines[i];
+          if (_looksLikeName(cand)) {
+            nama = cand;
+            break;
+          }
+        }
+      }
+    }
+    if (nama != null) {
+      _nama.text = _titleCase(nama);
+      filled++;
+    }
+
+    // --- Tanggal lahir: pola dd-mm-yyyy (atau dd/mm/yyyy, dd.mm.yyyy). ---
+    final dobMatch =
+        RegExp(r'\b(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{4})\b').firstMatch(raw);
+    if (dobMatch != null) {
+      final d = int.tryParse(dobMatch.group(1)!);
+      final m = int.tryParse(dobMatch.group(2)!);
+      final y = int.tryParse(dobMatch.group(3)!);
+      if (d != null && m != null && y != null) {
+        try {
+          final parsed = DateTime(y, m, d);
+          // Validasi kasar: hari/bulan cocok (konstruktor DateTime
+          // menormalisasi overflow seperti 31 Feb -> 3 Mar).
+          if (parsed.year == y && parsed.month == m && parsed.day == d) {
+            _birthDate = parsed;
+            filled++;
+          }
+        } catch (_) {
+          // Tanggal tidak valid → lewati, isi manual.
+        }
+      }
+    }
+
+    if (filled > 0) setState(() {});
+    return filled;
+  }
+
+  bool _looksLikeName(String s) {
+    if (s.length < 3) return false;
+    if (RegExp(r'\d').hasMatch(s)) return false;
+    return RegExp(r"^[A-Za-z.,'() \-]{3,}$").hasMatch(s) &&
+        RegExp(r'[A-Za-z]{2,}').hasMatch(s);
+  }
+
+  String _titleCase(String s) => s
+      .toLowerCase()
+      .split(' ')
+      .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+      .join(' ');
 
   Future<void> _submit() async {
     if (!_form.currentState!.validate()) return;
@@ -208,6 +445,12 @@ class _KycScreenState extends State<KycScreen> {
             ? 'WNI'
             : _kewarganegaraan.text.trim(),
         phone: _phone.text.trim(),
+        currentAddress: _currentAddress.text.trim(),
+        officeAddress: _officeAddress.text.trim(),
+        homeLat: _homeLat,
+        homeLng: _homeLng,
+        officeLat: _officeLat,
+        officeLng: _officeLng,
       );
       // 2) Kontak darurat.
       await _svc.upsertEmergencyContacts(
@@ -370,6 +613,36 @@ class _KycScreenState extends State<KycScreen> {
             _field(_kewarganegaraan, 'Kewarganegaraan', Icons.flag_outlined,
                 (v) => _req(v, 'Kewarganegaraan')),
 
+            _section('Alamat Tinggal Saat Ini'),
+            _field(
+              _currentAddress,
+              'Alamat tinggal saat ini',
+              Icons.home_work_outlined,
+              (v) => _addressValidator(v, 'Alamat tinggal'),
+              lines: 3,
+            ),
+            _locationRow(
+              lat: _homeLat,
+              lng: _homeLng,
+              locating: _locatingHome,
+              onUseLocation: () => _useCurrentLocation(forHome: true),
+            ),
+
+            _section('Alamat Kantor'),
+            _field(
+              _officeAddress,
+              'Alamat kantor',
+              Icons.business_outlined,
+              (v) => _addressValidator(v, 'Alamat kantor'),
+              lines: 3,
+            ),
+            _locationRow(
+              lat: _officeLat,
+              lng: _officeLng,
+              locating: _locatingOffice,
+              onUseLocation: () => _useCurrentLocation(forHome: false),
+            ),
+
             _section('Nomor HP Utama'),
             _field(_phone, 'Contoh: 081234567890', Icons.phone_outlined,
                 _phoneValidator,
@@ -412,6 +685,22 @@ class _KycScreenState extends State<KycScreen> {
               file: _ktpFile,
               onPick: () => _pickImage(docType: 'ktp'),
             ),
+            if (_ktpFile != null) ...[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: _scanning ? null : () => _scanKtp(_ktpFile!),
+                icon: _scanning
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.document_scanner_outlined),
+                label: Text(
+                  _scanning ? 'Memindai...' : 'Pindai otomatis dari foto KTP',
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             _docPicker(
               title: 'Foto Selfie',
@@ -433,6 +722,65 @@ class _KycScreenState extends State<KycScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// Baris "Gunakan lokasi saat ini" + tampilan koordinat + link buka maps.
+  /// Dipakai ulang untuk alamat tinggal & alamat kantor.
+  Widget _locationRow({
+    required double? lat,
+    required double? lng,
+    required bool locating,
+    required VoidCallback onUseLocation,
+  }) {
+    final cs = Theme.of(context).colorScheme;
+    final hasCoord = lat != null && lng != null;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          OutlinedButton.icon(
+            onPressed: locating ? null : onUseLocation,
+            icon: locating
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.my_location_rounded),
+            label: Text(
+              locating ? 'Mengambil lokasi...' : 'Gunakan lokasi saat ini',
+            ),
+          ),
+          if (hasCoord) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.place_rounded, size: 18, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '${lat.toStringAsFixed(6)}, ${lng.toStringAsFixed(6)}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => _openMaps(lat, lng),
+                    child: const Text('Buka maps'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

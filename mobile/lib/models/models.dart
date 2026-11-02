@@ -23,6 +23,13 @@ class AppProfile {
   final String phone; // nomor utama
   final DateTime? birthDate;
   final String address;
+  // --- v3.0: domisili + kantor + share location ---
+  final String currentAddress; // alamat tinggal saat ini
+  final String officeAddress; // alamat kantor
+  final double? homeLat;
+  final double? homeLng;
+  final double? officeLat;
+  final double? officeLng;
   final String kycStatus; // pending | verified | rejected
 
   const AppProfile({
@@ -43,6 +50,12 @@ class AppProfile {
     this.pekerjaan = '',
     this.kewarganegaraan = 'WNI',
     required this.phone,
+    this.currentAddress = '',
+    this.officeAddress = '',
+    this.homeLat,
+    this.homeLng,
+    this.officeLat,
+    this.officeLng,
     required this.birthDate,
     required this.address,
     required this.kycStatus,
@@ -69,6 +82,12 @@ class AppProfile {
         pekerjaan: (j['pekerjaan'] ?? '') as String,
         kewarganegaraan: (j['kewarganegaraan'] ?? 'WNI') as String,
         phone: (j['phone'] ?? '') as String,
+        currentAddress: (j['current_address'] ?? '') as String,
+        officeAddress: (j['office_address'] ?? '') as String,
+        homeLat: (j['home_lat'] as num?)?.toDouble(),
+        homeLng: (j['home_lng'] as num?)?.toDouble(),
+        officeLat: (j['office_lat'] as num?)?.toDouble(),
+        officeLng: (j['office_lng'] as num?)?.toDouble(),
         birthDate:
             j['birth_date'] == null ? null : DateTime.parse(j['birth_date'] as String),
         address: (j['address'] ?? '') as String,
@@ -115,6 +134,10 @@ class Loan {
   final String status;
   final String? rejectReason;
   final DateTime createdAt;
+  // --- v3.0: usulan vs final + jaminan ---
+  final int? requestedAmount; // usulan nasabah (kalau beda dari final)
+  final String collateralType;
+  final String collateralDetail;
 
   const Loan({
     required this.id,
@@ -130,6 +153,9 @@ class Loan {
     required this.status,
     required this.rejectReason,
     required this.createdAt,
+    this.requestedAmount,
+    this.collateralType = '',
+    this.collateralDetail = '',
   });
 
   /// Total yang harus dibayar (perkiraan tampilan; nilai resmi di server).
@@ -151,6 +177,9 @@ class Loan {
         status: j['status'] as String,
         rejectReason: j['reject_reason'] as String?,
         createdAt: DateTime.parse(j['created_at'] as String),
+        requestedAmount: (j['requested_amount'] as num?)?.toInt(),
+        collateralType: (j['collateral_type'] ?? '') as String,
+        collateralDetail: (j['collateral_detail'] ?? '') as String,
       );
 }
 

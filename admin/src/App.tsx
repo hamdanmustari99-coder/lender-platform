@@ -6,6 +6,7 @@ import Layout from './components/Layout.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Loans from './pages/Loans.tsx'
+import LoanNew from './pages/LoanNew.tsx'
 import LoanDetail from './pages/LoanDetail.tsx'
 import Kyc from './pages/Kyc.tsx'
 import CalonNasabah from './pages/CalonNasabah.tsx'
@@ -90,6 +91,7 @@ export default function App() {
         <Route element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="loans" element={<Loans />} />
+          <Route path="loans/new" element={<LoanNew />} />
           <Route path="loans/:id" element={<LoanDetail />} />
           <Route path="kyc" element={<Kyc />} />
           <Route path="calon" element={<CalonNasabah />} />

@@ -33,6 +33,13 @@ create table public.profiles (
   kewarganegaraan text   default 'WNI',
   -- --- Kontak & penugasan ---
   phone       text       default '',             -- nomor utama (wajib, format ID)
+  -- --- v3.0: alamat tinggal saat ini + alamat kantor + share location ---
+  current_address text     default '',             -- alamat tinggal saat ini (boleh beda dari KTP)
+  office_address  text     default '',             -- alamat kantor / tempat kerja
+  home_lat   double precision,                     -- shareloc rumah (opsional)
+  home_lng   double precision,
+  office_lat double precision,                     -- shareloc kantor (opsional)
+  office_lng double precision,
   petugas_id  uuid references public.profiles(id) on delete set null,  -- v2.0: petugas penanggung jawab
   wilayah     text       default '',             -- v2.0: wilayah (petugas) / domisili tagihan
   kyc_status  kyc_status not null default 'pending',
@@ -76,6 +83,9 @@ create table public.loans (
   tenor_months    int not null check (tenor_months between 1 and 52),  -- v2.0: jumlah periode (weekly s/d 52 / monthly s/d 12)
   frequency       loan_frequency not null default 'weekly',            -- v2.0: mingguan|bulanan
   interest_rate   numeric(5,2) not null default 15.00,  -- v2.0: flat 15%/periode (sementara)
+  requested_amount bigint,                                  -- v3.0: usulan nasabah (admin tentukan final saat approve)
+  collateral_type text default '',                         -- v3.0: jenis jaminan (BPKB/sertifikat/dll)
+  collateral_detail text default '',                       -- v3.0: detail jaminan
   monthly_payment bigint not null,   -- = cicilan per periode (nama kolom dipertahankan)
   late_fee        bigint not null default 0,           -- v2.0: denda (0 sampai ditentukan)
   collected_by    uuid references public.profiles(id) on delete set null,  -- v2.0: petugas input terakhir
@@ -87,8 +97,8 @@ create table public.loans (
   created_at      timestamptz not null default now()
 );
 
--- Guard insert (v2.0): borrower/nasabah tidak bisa set rate/status/kolom keputusan;
--- bunga dikunci 15.00, cicilan = ceil((amount + 15%) / tenor)
+-- Guard insert (v3.0): tenor monthly 1|3, weekly 1-52; requested_amount tercatat;
+-- amount final = requested (admin override saat approve); cicilan terbit dari amount.
 create or replace function public.loans_guard_insert()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -100,7 +110,19 @@ begin
     new.decided_at    = null;
     new.collected_by  = null;
     if new.frequency is null then new.frequency = 'weekly'; end if;
+    if new.frequency = 'monthly' and new.tenor_months not in (1,3) then
+      raise exception 'Untuk bulanan pilih tenor 1 atau 3 bulan';
+    end if;
+    if new.frequency = 'weekly' and (new.tenor_months < 1 or new.tenor_months > 52) then
+      raise exception 'Untuk mingguan tenor 1-52 minggu';
+    end if;
+    if new.requested_amount is null then new.requested_amount = new.amount; end if;
+    if new.amount is null then new.amount = new.requested_amount; end if;
+    if new.amount <> new.requested_amount then new.amount = new.requested_amount; end if;
     new.monthly_payment = ceil((new.amount + new.amount * new.interest_rate / 100) / new.tenor_months)::bigint;
+  else
+    if new.requested_amount is null then new.requested_amount = new.amount; end if;
+    if new.frequency is null then new.frequency = 'weekly'; end if;
   end if;
   return new;
 end;
@@ -214,13 +236,14 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- 9. RPC: hitung cicilan & generate jadwal saat approve (v2.0: per FREKUENSI)
-create or replace function public.approve_loan(p_loan_id uuid)
+create or replace function public.approve_loan(p_loan_id uuid, p_amount_override bigint default null)
 returns void language plpgsql security definer set search_path = public as $$
 declare
   lr record;
   pay bigint;
   due date;
   step interval;
+  v_final bigint;
 begin
   -- cek admin DULUAN
   if not public.is_admin() then
@@ -234,14 +257,22 @@ begin
     raise exception 'Loan is not in an approvable state';
   end if;
 
+  -- v3.0: nominal final ditentukan admin (default = amount/requested).
   -- v2.0: bunga flat per periode (15%): total = amount + 15%
-  pay := ceil((lr.amount + lr.amount * lr.interest_rate / 100) / lr.tenor_months)::bigint;
+  v_final := coalesce(p_amount_override, lr.amount);
+  if v_final is null or v_final < 500000 or v_final > 20000000 then
+    raise exception 'Nominal final harus Rp500rb - Rp20jt';
+  end if;
+  if lr.frequency = 'monthly' and lr.tenor_months not in (1,3) then
+    raise exception 'Untuk bulanan pilih tenor 1 atau 3 bulan';
+  end if;
+  pay := ceil((v_final + v_final * lr.interest_rate / 100) / lr.tenor_months)::bigint;
   step := case when lr.frequency = 'weekly'
               then make_interval(weeks => 1)
               else make_interval(months => 1) end;
 
   update public.loans
-     set status = 'disbursed', monthly_payment = pay,
+     set status = 'disbursed', amount = v_final, monthly_payment = pay,
          decided_by = auth.uid(), decided_at = now()
    where id = p_loan_id;
 
@@ -253,7 +284,7 @@ begin
 
   insert into public.notifications (user_id, title, body, type)
   values (lr.user_id, 'Pinjaman Disetujui',
-          'Pinjaman Anda sebesar Rp' || lr.amount || ' telah disetujui. Cicilan mingguan/bulanan sebesar Rp' || pay || ' x ' || lr.tenor_months || ' periode. Cicilan pertama jatuh tempo pada ' || (current_date + step)::date,
+          'Pinjaman Anda sebesar Rp' || v_final || ' telah disetujui. Cicilan ' || case when lr.frequency = 'weekly' then 'mingguan' else 'bulanan' end || ' sebesar Rp' || pay || ' x ' || lr.tenor_months || ' periode. Cicilan pertama jatuh tempo pada ' || (current_date + step)::date,
           'loan_status');
 end;
 $$;
@@ -465,6 +496,55 @@ begin
 end;
 $$;
 
+-- 9b. RPC v3.0: admin buatkan pinjaman langsung (nominal dari WA = final).
+-- Insert sebagai admin (guard skip) lalu approve atomic. 1 call = cair.
+create or replace function public.admin_create_loan(p_user_id uuid, p_amount bigint, p_tenor int, p_frequency loan_frequency, p_purpose text default '', p_collateral_type text default '', p_collateral_detail text default '')
+returns uuid language plpgsql security definer set search_path = public as $$
+declare v_id uuid;
+begin
+  if not public.is_admin() then
+    raise exception 'Only admin can create loans';
+  end if;
+  if p_amount is null or p_amount < 500000 or p_amount > 20000000 then
+    raise exception 'Nominal harus Rp500rb - Rp20jt';
+  end if;
+  if p_frequency = 'monthly' and p_tenor not in (1,3) then
+    raise exception 'Untuk bulanan pilih tenor 1 atau 3 bulan';
+  end if;
+  if p_frequency = 'weekly' and (p_tenor < 1 or p_tenor > 52) then
+    raise exception 'Untuk mingguan tenor 1-52 minggu';
+  end if;
+  insert into public.loans (user_id, amount, requested_amount, tenor_months, frequency, monthly_payment, purpose, collateral_type, collateral_detail, status)
+  values (p_user_id, p_amount, p_amount, p_tenor, p_frequency, p_amount, coalesce(p_purpose,''), coalesce(p_collateral_type,''), coalesce(p_collateral_detail,''), 'submitted')
+  returning id into v_id;
+  perform public.approve_loan(v_id, p_amount);
+  return v_id;
+end;
+$$;
+
+-- 9c. RPC v3.0: flag riwayat telat (pernah nunggak / bayar lewat due).
+-- true = cicilan unpaid sudah lewat due ATAU paid_at > due_date.
+create or replace function public.nasabah_telat_flag(p_user_id uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.installments i
+    join public.loans l on l.id = i.loan_id
+    where l.user_id = p_user_id
+      and (i.due_date < current_date and i.status <> 'paid'
+           or i.paid_at::date > i.due_date)
+  );
+$$;
+
+-- 9d. TABEL v3.0: dokumen per pinjaman (foto jaminan + dokumen lain).
+create table if not exists public.loan_documents (
+  id           uuid primary key default gen_random_uuid(),
+  loan_id      uuid not null references public.loans(id) on delete cascade,
+  doc_type     text not null default 'jaminan',
+  storage_path text not null default '',
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_loan_docs_loan on public.loan_documents(loan_id);
+
 -- 10b. RPC lama: tandai cicilan lunas (admin; dipertahankan utk admin web v1.0) --
 -- FR-B6 + hardening: admin-first, id jelas, hanya untuk loan berjalan
 create or replace function public.pay_installment(p_installment_id uuid)
@@ -576,6 +656,7 @@ create policy "route inst read" on public.installments for select to authenticat
 
 alter table public.payments enable row level security;
 alter table public.collection_routes enable row level security;
+alter table public.loan_documents enable row level security;   -- v3.0
 create policy "pay read" on public.payments for select
   using (auth.uid() = nasabah_id or auth.uid() = petugas_id or public.is_admin() or public.is_petugas());
 create policy "pay write petugas" on public.payments for insert
@@ -588,6 +669,14 @@ create policy "route admin upd" on public.collection_routes for update
   using (public.is_admin());
 create policy "route admin del" on public.collection_routes for delete
   using (public.is_admin());
+
+-- loan_documents v3.0: nasabah baca miliknya; petugas/admin kelola
+create policy "loan docs read" on public.loan_documents for select
+  using (public.is_admin() or public.is_petugas()
+    or exists (select 1 from public.loans l where l.id = loan_id and l.user_id = auth.uid()));
+create policy "loan docs write" on public.loan_documents for insert
+  with check (public.is_admin() or public.is_petugas()
+    or exists (select 1 from public.loans l where l.id = loan_id and l.user_id = auth.uid()));
 
 -- calon_nasabah (M6b): petugas insert + baca miliknya; owner kelola
 alter table public.calon_nasabah enable row level security;

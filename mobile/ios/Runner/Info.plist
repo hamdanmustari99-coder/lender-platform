@@ -30,6 +30,8 @@
 	<string>Danaku membutuhkan akses kamera untuk memotret KTP dan selfie secara langsung saat proses verifikasi identitas (KYC).</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Danaku membutuhkan akses galeri foto agar Anda dapat memilih foto KTP dan selfie yang sudah tersimpan saat proses verifikasi identitas (KYC).</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Danaku membutuhkan lokasi Anda untuk menandai alamat rumah dan kantor saat pendaftaran.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

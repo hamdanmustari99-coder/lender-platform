@@ -4,11 +4,13 @@ import {
   approveLoan,
   fetchInstallments,
   fetchLoan,
+  fetchLoanDocuments,
+  kycDocSignedUrl,
   payInstallment,
   rejectLoan,
   subscribeToTables,
 } from '../lib/api'
-import type { Installment, Loan } from '../lib/api'
+import type { Installment, Loan, LoanDocument } from '../lib/api'
 import BorrowerEmergencyContacts from '../components/EmergencyContacts'
 import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
@@ -23,6 +25,15 @@ const INST_LABEL: Record<string, string> = {
   overdue: 'Terlambat',
 }
 
+const tenorLabel = (loan: Loan): string =>
+  loan.frequency === 'weekly' ? `${loan.tenor_months} minggu` : `${loan.tenor_months} bulan`
+
+const freqLabel = (loan: Loan): string =>
+  loan.frequency === 'weekly' ? 'Mingguan' : 'Bulanan'
+
+const cicilanLabel = (loan: Loan): string =>
+  loan.frequency === 'weekly' ? 'Cicilan / minggu' : 'Cicilan / bulan'
+
 export default function LoanDetail() {
   const { id } = useParams<{ id: string }>()
   const [loan, setLoan] = useState<Loan | null>(null)
@@ -32,6 +43,9 @@ export default function LoanDetail() {
   const [busy, setBusy] = useState(false)
   const [showReject, setShowReject] = useState(false)
   const [reason, setReason] = useState('')
+  const [finalAmount, setFinalAmount] = useState('')
+  const [docs, setDocs] = useState<LoanDocument[]>([])
+  const [docUrls, setDocUrls] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     if (!id) return
@@ -46,9 +60,48 @@ export default function LoanDetail() {
   }, [id])
 
   useEffect(() => {
+    setFinalAmount('')
     void load()
     return subscribeToTables(['loans', 'installments'], () => void load())
   }, [load])
+
+  // Prefill nominal final saat loan dimuat / berganti
+  useEffect(() => {
+    if (loan && finalAmount === '') {
+      setFinalAmount(String(loan.requested_amount ?? loan.amount))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loan?.id])
+
+  // Dokumen jaminan per pinjaman (thumbnail via signed URL)
+  useEffect(() => {
+    let cancelled = false
+    const run = async () => {
+      if (!id) return
+      try {
+        const list = await fetchLoanDocuments(id)
+        if (cancelled) return
+        setDocs(list)
+        const entries = await Promise.all(
+          list.map(async (d) => {
+            try {
+              const url = await kycDocSignedUrl(d.storage_path)
+              return [d.id, url] as const
+            } catch {
+              return [d.id, ''] as const
+            }
+          }),
+        )
+        if (!cancelled) setDocUrls(Object.fromEntries(entries.filter(([, u]) => u)))
+      } catch {
+        if (!cancelled) setDocs([])
+      }
+    }
+    void run()
+    return () => {
+      cancelled = true
+    }
+  }, [id])
 
   const act = async (fn: () => Promise<void>) => {
     setActionErr(null)
@@ -82,6 +135,9 @@ export default function LoanDetail() {
     0,
   )
   const sisaHutang = Math.max(0, totalTagihan - totalBayar)
+  const showUsulan = loan.requested_amount != null && loan.requested_amount !== loan.amount
+  const jaminan =
+    [loan.collateral_type, loan.collateral_detail].filter(Boolean).join(' — ') || '—'
 
   return (
     <div className="space-y-4">
@@ -110,9 +166,14 @@ export default function LoanDetail() {
           <div className="mb-3 text-sm font-semibold text-slate-700">Detail Pinjaman</div>
           <dl className="space-y-2 text-sm">
             <Row label="Jumlah pokok" value={fmtRp(loan.amount)} />
-            <Row label="Tenor" value={`${loan.tenor_months} bulan`} />
+            {showUsulan && (
+              <Row label="Usulan nasabah" value={fmtRp(loan.requested_amount as number)} />
+            )}
+            <Row label="Jaminan" value={jaminan} />
+            <Row label="Frekuensi" value={freqLabel(loan)} />
+            <Row label="Tenor" value={tenorLabel(loan)} />
             <Row label="Bunga" value={`${loan.interest_rate}% flat / tahun`} />
-            <Row label="Cicilan / bulan" value={fmtRp(loan.monthly_payment)} strong />
+            <Row label={cicilanLabel(loan)} value={fmtRp(loan.monthly_payment)} strong />
             <Row label="Total tagihan" value={fmtRp(totalTagihan)} />
             <Row label="Sudah dibayar" value={fmtRp(totalBayar)} />
             <Row label="Sisa hutang" value={fmtRp(sisaHutang)} strong />
@@ -124,21 +185,55 @@ export default function LoanDetail() {
             )}
           </dl>
           {decidable && (
-            <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-4">
-              <button
-                disabled={busy}
-                onClick={() => void act(() => approveLoan(loan.id))}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                ✅ Setujui &amp; Cairkan
-              </button>
-              <button
-                disabled={busy}
-                onClick={() => setShowReject((v) => !v)}
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                ✖ Tolak
-              </button>
+            <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+              <div>
+                <label
+                  htmlFor="final-amount"
+                  className="mb-1 block text-xs font-medium text-slate-600"
+                >
+                  Nominal final (Rp)
+                </label>
+                <input
+                  id="final-amount"
+                  type="number"
+                  min={500000}
+                  max={20000000}
+                  step={50000}
+                  value={finalAmount}
+                  onChange={(e) => setFinalAmount(e.target.value)}
+                  placeholder={String(loan.requested_amount ?? loan.amount)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+                />
+                <p className="mt-1 text-xs text-slate-400">
+                  Prefill usulan nasabah; boleh diubah sebelum dicairkan.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  disabled={busy}
+                  onClick={() =>
+                    void act(async () => {
+                      const v = Number(finalAmount)
+                      if (!Number.isFinite(v) || v < 500000 || v > 20000000) {
+                        throw new Error(
+                          'Nominal final harus antara Rp500.000–Rp20.000.000',
+                        )
+                      }
+                      await approveLoan(loan.id, Math.round(v))
+                    })
+                  }
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  ✅ Setujui &amp; Cairkan
+                </button>
+                <button
+                  disabled={busy}
+                  onClick={() => setShowReject((v) => !v)}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  ✖ Tolak
+                </button>
+              </div>
             </div>
           )}
           {showReject && decidable && (
@@ -206,6 +301,37 @@ export default function LoanDetail() {
           </dl>
           <BorrowerEmergencyContacts userId={loan.user_id} />
         </div>
+      </div>
+
+      {/* Dokumen Jaminan */}
+      <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="mb-3 text-sm font-semibold text-slate-700">
+          Dokumen Jaminan ({docs.length})
+        </div>
+        {docs.length === 0 ? (
+          <div className="text-sm text-slate-400">Belum ada dokumen jaminan.</div>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {docs.map((d) => (
+              <div key={d.id} className="rounded-lg border border-slate-200 p-3">
+                {docUrls[d.id] ? (
+                  <img
+                    src={docUrls[d.id]}
+                    alt={d.doc_type}
+                    width={200}
+                    className="h-auto w-[200px] rounded-md object-cover"
+                  />
+                ) : (
+                  <div className="flex h-24 w-[200px] items-center justify-center rounded-md bg-slate-100 text-xs text-slate-400">
+                    Memuat…
+                  </div>
+                )}
+                <div className="mt-2 text-xs font-medium text-slate-700">{d.doc_type}</div>
+                <div className="text-xs text-slate-500">{fmtDate(d.created_at)}</div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Jadwal cicilan */}

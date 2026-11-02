@@ -1,27 +1,66 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
+  fetchInstallments,
   fetchLoansByUser,
+  fetchNasabahTelatFlag,
   fetchProfile,
   subscribeToTables,
 } from '../lib/api'
-import type { Loan, Profile } from '../lib/api'
+import type { Installment, Loan, Profile } from '../lib/api'
 import BorrowerEmergencyContacts from '../components/EmergencyContacts'
 import { fmtDate, fmtRp, KYC_STATUS_CLASS, KYC_STATUS_LABEL, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
+
+/** Cicilan telat: belum lunas & due_date < hari ini, atau paid_at > due_date. */
+function isTelat(inst: Installment): boolean {
+  const due = new Date(inst.due_date)
+  due.setHours(0, 0, 0, 0)
+  if (inst.paid_at) {
+    const dueEnd = new Date(due)
+    dueEnd.setHours(23, 59, 59, 999)
+    return new Date(inst.paid_at) > dueEnd
+  }
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  return inst.status !== 'paid' && due.getTime() < today.getTime()
+}
+
+const FREQ_LABEL: Record<string, string> = { weekly: 'Mingguan', monthly: 'Bulanan' }
 
 export default function UserDetail() {
   const { id } = useParams<{ id: string }>()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loans, setLoans] = useState<Loan[]>([])
+  const [installments, setInstallments] = useState<Record<string, Installment[]>>({})
+  const [telatFlag, setTelatFlag] = useState<boolean | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
     try {
-      const [p, l] = await Promise.all([fetchProfile(id), fetchLoansByUser(id)])
+      const [p, l, flag] = await Promise.all([
+        fetchProfile(id),
+        fetchLoansByUser(id),
+        fetchNasabahTelatFlag(id).catch(() => null),
+      ])
       setProfile(p)
       setLoans(l)
+      if (typeof flag === 'boolean') setTelatFlag(flag)
       setError(null)
+      if (l.length > 0) {
+        const entries = await Promise.all(
+          l.map(async (loan) => {
+            try {
+              return [loan.id, await fetchInstallments(loan.id)] as const
+            } catch {
+              return [loan.id, []] as const
+            }
+          }),
+        )
+        setInstallments(Object.fromEntries(entries))
+      } else {
+        setInstallments({})
+      }
     } catch (e) {
       setError(errMsg(e))
     }
@@ -29,7 +68,7 @@ export default function UserDetail() {
 
   useEffect(() => {
     void load()
-    return subscribeToTables(['profiles', 'loans'], () => void load())
+    return subscribeToTables(['profiles', 'loans', 'installments'], () => void load())
   }, [load])
 
   if (error) {
@@ -40,6 +79,14 @@ export default function UserDetail() {
   if (!profile) return <div className="text-sm text-slate-500">Memuat…</div>
 
   const totalLoan = loans.reduce((s, l) => s + l.amount, 0)
+  const homeMaps =
+    profile.home_lat != null && profile.home_lng != null
+      ? `https://maps.google.com/?q=${profile.home_lat},${profile.home_lng}`
+      : null
+  const officeMaps =
+    profile.office_lat != null && profile.office_lng != null
+      ? `https://maps.google.com/?q=${profile.office_lat},${profile.office_lng}`
+      : null
 
   return (
     <div className="space-y-4">
@@ -47,9 +94,21 @@ export default function UserDetail() {
         ← Kembali ke daftar user
       </Link>
 
-      <h1 className="text-2xl font-bold text-slate-800">
-        {profile.full_name || '(tanpa nama)'}
-      </h1>
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-2xl font-bold text-slate-800">
+          {profile.full_name || '(tanpa nama)'}
+        </h1>
+        {telatFlag === true && (
+          <span className="rounded-full bg-red-600 px-3 py-1 text-sm font-bold text-white">
+            PERNAH TELAT
+          </span>
+        )}
+        {telatFlag === false && (
+          <span className="rounded-full bg-emerald-600 px-3 py-1 text-sm font-bold text-white">
+            LANCAR
+          </span>
+        )}
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl bg-white p-5 shadow-sm">
@@ -138,6 +197,122 @@ export default function UserDetail() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="mb-3 text-sm font-semibold text-slate-700">Domisili &amp; Kantor</div>
+        <dl className="space-y-3 text-sm">
+          <div>
+            <dt className="text-slate-500">Alamat Domisili</dt>
+            <dd className="text-slate-800">{profile.current_address || '—'}</dd>
+            {homeMaps && (
+              <dd>
+                <a
+                  href={homeMaps}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-emerald-600 hover:underline"
+                >
+                  📍 Lihat di Google Maps
+                </a>
+              </dd>
+            )}
+          </div>
+          <div>
+            <dt className="text-slate-500">Alamat Kantor</dt>
+            <dd className="text-slate-800">{profile.office_address || '—'}</dd>
+            {officeMaps && (
+              <dd>
+                <a
+                  href={officeMaps}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-xs font-medium text-emerald-600 hover:underline"
+                >
+                  📍 Lihat di Google Maps
+                </a>
+              </dd>
+            )}
+          </div>
+        </dl>
+      </div>
+
+      <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="mb-3 text-sm font-semibold text-slate-700">Riwayat Pembayaran</div>
+        {loans.length === 0 && (
+          <div className="py-4 text-center text-sm text-slate-400">Belum ada pinjaman</div>
+        )}
+        <div className="space-y-4">
+          {loans.map((l) => {
+            const list = installments[l.id] ?? []
+            const telatCount = list.filter(isTelat).length
+            return (
+              <div key={l.id} className="rounded-lg border border-slate-200 p-4">
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+                  <Link to={`/loans/${l.id}`} className="font-semibold text-emerald-700 hover:underline">
+                    {fmtRp(l.amount)}
+                  </Link>
+                  <span className="text-xs text-slate-500">
+                    {FREQ_LABEL[l.frequency] ?? l.frequency} · {l.tenor_months} bln
+                  </span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${LOAN_STATUS_CLASS[l.status]}`}>
+                    {LOAN_STATUS_LABEL[l.status]}
+                  </span>
+                  {list.length > 0 && (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        telatCount > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                      }`}
+                    >
+                      {telatCount > 0 ? `${telatCount} cicilan telat` : 'Tidak ada telat'}
+                    </span>
+                  )}
+                </div>
+                {list.length === 0 ? (
+                  <div className="text-xs text-slate-400">Belum ada cicilan</div>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 text-left text-slate-500">
+                        <th className="py-1 pr-2">#</th>
+                        <th className="py-1 pr-2">Jatuh Tempo</th>
+                        <th className="py-1 pr-2">Nominal</th>
+                        <th className="py-1 pr-2">Dibayar</th>
+                        <th className="py-1 pr-2">Status</th>
+                        <th className="py-1">Ket.</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {list.map((c) => {
+                        const telat = isTelat(c)
+                        return (
+                          <tr key={c.id} className="border-b border-slate-50 last:border-0">
+                            <td className="py-1.5 pr-2 text-slate-600">{c.seq}</td>
+                            <td className="py-1.5 pr-2 text-slate-600">{fmtDate(c.due_date)}</td>
+                            <td className="py-1.5 pr-2 text-slate-800">{fmtRp(c.amount)}</td>
+                            <td className="py-1.5 pr-2 text-slate-600">
+                              {c.paid_at ? `${fmtRp(c.amount_paid)} (${fmtDate(c.paid_at)})` : '—'}
+                            </td>
+                            <td className="py-1.5 pr-2 text-slate-600">{c.status}</td>
+                            <td className="py-1.5">
+                              {telat ? (
+                                <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">
+                                  Telat
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )
+          })}
         </div>
       </div>
     </div>
