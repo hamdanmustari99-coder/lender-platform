@@ -6,9 +6,9 @@ import '../widgets/common.dart';
 
 const int _minAmount = 500000;
 const int _maxAmount = 20000000;
-const double _rate = 15.0; // v2.0: bunga flat 15% per periode (sementara)
+const double _rate = 20.0; // v3.0: bunga flat 20% per periode
 
-/// Hitung cicilan per periode bunga flat v2.0: (amount + amount * 15%) / tenor.
+/// Hitung cicilan per periode bunga flat v3.0: (amount + amount * 20%) / tenor.
 /// Server (trigger loans_guard) memakai rumus sama dengan pembulatan ke atas.
 int estimatePeriodicPayment(int amount, int tenor) =>
     ((amount + amount * _rate / 100) / tenor).round();

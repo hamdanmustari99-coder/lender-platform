@@ -38,6 +38,6 @@ HP petugas login `petugas.udin@danaku.test / Test1234!`, HP nasabah `borrower.b@
 
 ## Catatan untuk klien
 - Data `@danaku.test` = data contoh, dihapus sebelum produksi.
-- Bunga 15% + denda 0 = angka sementara (minta angka fix).
-- APK = debug build (ukuran besar, ada banner debug). Release build menyusul sebelum produksi.
+- Bunga 20% + denda 0.
+- Skema: Rp1jt/10 minggu = Rp120rb/minggu (total kembali Rp1,2jt).
 - Yang belum ada: convert calon 1-klik (sekarang 2 langkah), status overdue otomatis, FCM.

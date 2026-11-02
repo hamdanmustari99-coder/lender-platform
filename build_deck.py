@@ -101,7 +101,7 @@ textbox(s, 0.7, 5.15, 7.5, 1.2,
 c = shape(s, 8.9, 1.4, 3.75, 4.5, CARD)
 tf = c.text_frame; tf.word_wrap = True
 tf.margin_left = Inches(0.3); tf.margin_right = Inches(0.3); tf.margin_top = Inches(0.15)
-rows = [("Rp1 jt / 10 minggu", "Rp115 rb/minggu"), ("3 peran", "1 aplikasi + web"), ("15%", "bunga flat / periode")]
+rows = [("Rp1 jt / 10 minggu", "Rp120 rb/minggu"), ("3 peran", "1 aplikasi + web"), ("20%", "bunga flat / periode")]
 for i,(a,b) in enumerate(rows):
     p = tf.paragraphs[0] if i==0 else tf.add_paragraph()
     p.space_before = Pt(10) if i>0 else Pt(0)
@@ -144,7 +144,7 @@ footer(s, right_text="3 / 10")
 # ---------- 4 SKEMA ----------
 s = prs.slides.add_slide(blank); bg(s); accent_bar(s)
 kicker(s, 0.45, "03  —  SKEMA"); title(s, 0.8, "Pinjaman Mingguan / Bulanan", size=30)
-sub(s, 1.65, "Bunga flat 15% per periode (sementara) — transparan di depan", size=13)
+sub(s, 1.65, "Bunga flat 20% per periode — transparan di depan", size=13)
 bullets = [("Plafon", "Rp500 ribu – Rp20 juta"), ("Mingguan", "1 – 52 minggu  •  due tiap 7 hari"),
            ("Bulanan", "1 – 12 bulan  •  due tiap bulan"), ("Denda", "Rp0 (kolom siap, menunggu keputusan)")]
 for i,(k,v) in enumerate(bullets):
@@ -157,8 +157,8 @@ tf = ex.text_frame; tf.word_wrap=True
 tf.margin_left=Inches(0.35); tf.margin_right=Inches(0.35); tf.margin_top=Inches(0.3)
 pp=tf.paragraphs[0]; pp.text="CONTOH HITUNGAN"; pp.font.size=Pt(11); pp.font.bold=True; pp.font.color.rgb=hexcolor(ACC); pp.font.name="Calibri"
 q=tf.add_paragraph(); q.text="Pinjam Rp1.000.000 • 10 minggu"; q.font.size=Pt(14); q.font.bold=True; q.font.color.rgb=hexcolor(INK); q.font.name="Calibri"
-q=tf.add_paragraph(); q.text="Rp115.000 / minggu"; q.font.size=Pt(30); q.font.bold=True; q.font.color.rgb=hexcolor("0B6B4F"); q.font.name="Calibri"
-q=tf.add_paragraph(); q.text="Total kembali Rp1.150.000  (pokok + 15%)"; q.font.size=Pt(12); q.font.color.rgb=hexcolor("3A4A44"); q.font.name="Calibri"
+q=tf.add_paragraph(); q.text="Rp120.000 / minggu"; q.font.size=Pt(30); q.font.bold=True; q.font.color.rgb=hexcolor("0B6B4F"); q.font.name="Calibri"
+q=tf.add_paragraph(); q.text="Total kembali Rp1.200.000  (pokok + 20%)"; q.font.size=Pt(12); q.font.color.rgb=hexcolor("3A4A44"); q.font.name="Calibri"
 footer(s, right_text="4 / 10")
 
 # ---------- 5 PETUGAS ----------

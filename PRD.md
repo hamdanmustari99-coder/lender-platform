@@ -19,8 +19,8 @@ Danaku adalah aplikasi operasional **bank keliling** (pinjaman mikro dengan pena
 
 Backend 100% **Supabase Cloud**: Postgres + Auth + Storage + Realtime. Pembayaran = **tunai di lapangan** (tanpa payment gateway — sesuai realita bank keliling).
 
-Keputusan klien (1 Nov 2026):
-- **Bunga: 15% per periode pinjaman** (flat, sementara — diubah saat angka fix didapat).
+Keputusan klien (3 Nov 2026 — FINAL):
+- **Bunga: 20% per periode pinjaman** (flat).
 - **Frekuensi bayar: mingguan ATAU bulanan** (dipilih saat pengajuan — nilai plus aplikasi).
 - Jumlah nasabah per petugas bervariasi (tidak ada angka pasti — desain harus fleksibel).
 - Denda keterlambatan: belum ditentukan → denda = 0, disiapkan kolomnya.
@@ -50,7 +50,7 @@ Keputusan klien (1 Nov 2026):
 ### In-scope (MVP v2.0 — migrasi dari v1.0)
 - Auth 3 peran: admin/owner, petugas (dibuatkan owner), nasabah (daftar mandiri/didaftarkan petugas).
 - KYC full KTP + 3 nomor + 2 kontak darurat (SUDAH JADI ✅).
-- Pengajuan pinjaman: plafon Rp500rb–Rp20jt, **frekuensi mingguan/bulanan**, bunga flat **15%/periode** (configurable, sementara).
+- Pengajuan pinjaman: plafon Rp500rb–Rp20jt, **frekuensi mingguan/bulanan**, bunga flat **20%/periode**.
 - Approval: submitted → approved/disbursed | rejected + alasan (survey formal DITIADAKAN — sesuai realita bank keliling).
 - Auto-generate jadwal **per frekuensi** (mingguan: due tiap 7 hari; bulanan: tiap bulan).
 - **Pembayaran tunai oleh petugas** (RPC `record_cash_payment`): catat jumlah, tanggal, penerima (petugas_id), cicilan lunas parsial/penuh; auto-complete loan.
@@ -182,10 +182,10 @@ Nasabah: daftar (mandiri dipandu petugas / didaftarkan petugas)
 Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 ```
 
-## 13. Aturan Bisnis & Perhitungan (v2.0 — bunga 15% sementara)
+## 13. Aturan Bisnis & Perhitungan (v3.0 — bunga 20%)
 
-- Bunga flat **15%/periode**: `total = amount + amount*15%`; `cicilan = ceil(total/tenor)`.
-  Contoh: pinjam 1jt, 10 minggu → total 1.150.000 → 115.000/minggu.
+- Bunga flat **20%/periode**: `total = amount + amount*20%`; `cicilan = ceil(total/tenor)`.
+  Contoh: pinjam 1jt, 10 minggu → total 1.200.000 → 120.000/minggu.
 - Batas: amount 500.000–20.000.000 (CHECK), tenor = jumlah periode 1–52 (mingguan) / 1–12 (bulanan).
 - Frekuensi: `weekly` (due = approve + 7×i hari) | `monthly` (due = approve + i bulan).
 - Denda: kolom `late_fee` ada, nilai **0** sampai klien menentukan.
@@ -215,7 +215,7 @@ Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 | Petugas bawa tunai → selisih/catatan fiktif | Rekap harian + rekonsiliasi owner; payments tercatat per transaksi + paid_by |
 | HP petugas hilang/rusak | Data di cloud; login ulang di HP pengganti |
 | Nasabah gaptek (tidak install app) | App nasabah opsional — petugas bisa daftarkan & operasikan atas nama nasabah |
-| Angka bunga/denda belum fix | 15% configurable di satu tempat; late_fee kolom siap, nilai 0 |
+| Angka bunga belum fix | 20% per 3 Nov 2026; ganti via 1 migration + 1 konstanta |
 | Ketergantungan Supabase cloud | Skema SQL standar Postgres → bisa migrasi self-host kapan pun |
 
 ## 17. Milestone
@@ -236,6 +236,7 @@ Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 - [x] M-autoapply Kelebihan bayar mengalir otomatis (1 Nov 2026): `record_cash_payment` v2 — nominal berapa pun (≤ total sisa) → lunasi target → sisa ke cicilan berikutnya by due_date (tunggakan didahulukan); tiap aliran = 1 payments + note "Kelebihan dari #X"; overpay total → 400; notif sebutkan aliran. Uji live Ajeng: 700rb → seq4 lunas + 125rb ke seq2 overdue ✅ → lunasi 2.025.000 sekaligus → completed, net 3.450.000 ✅. Bayar tanggal beda (advance) memang sudah didukung sejak awal (cicilan belum due bisa dibayar parsial). schema.sql + PRD sinkron.
 - [x] M6c Ringkasan bayar di detail pinjaman (1 Nov 2026): mobile + admin tampil **total tagihan** (pokok+bunga+denda), **sudah dibayar** (sum amount_paid, parsial ikut), **sisa hutang** + progress nominal + sisa per angsuran; label frekuensi/tenor/bunga v2.0. analyze 0 error, admin build ✅. Validasi angka live: weekly completed 1.150.000/1.150.000/0 ✅; backfill amount_paid untuk paid lama ✅.
 - [x] M8 Demo ke klien (1 Nov 2026): APK final **app-debug.apk 177MB** (BUILD_EXIT=0, fitur M5–M-void2–M-autoapply semua masuk) + **DEMO.md** (checklist 4 skenario ±20 menit + cast 8 akun + catatan klien) + data demo dirapikan (nama Indonesia, Budi nunggak fresh seq1 telat 5 hari, Petugas Asing tanpa rute). PRD §18.7/§19/status board updated (basi pinjol dibersihkan).
+- [x] M10 Bunga 20% (3 Nov 2026): default kolom + guard 15→20; mobile _rate 20.0; PRD §13/keputusan/risiko + DEMO + PPTX (120rb/minggu, total 1.2jt) sinkron. **Bug ketemu & fix:** overload approve_loan (2 versi) bikin PostgREST 300 → drop versi 1-arg, sisakan 2-arg (default = kompatibel). Uji live: Candra 1jt/10 → 20.00 + 120rb ✅ → approve → completed 10×120rb ✅. Catatan: loan yang SUDAH cair sebelum ini tetap ikut akad lamanya (15%); 1 loan submitted lama disamakan 20%.
 - [x] M9 v3.0 Registrasi & fitur klien (3 Nov 2026): DB live — profiles +6 kolom (current/office address + 4 shareloc), loans +3 (requested_amount, collateral_type/detail), loan_documents + RLS, RPC approve_loan(p_amount_override), admin_create_loan (fix monthly_payment dummy), nasabah_telat_flag, guard tenor monthly 1|3 + weekly 1-52. Uji live ✅ (tenor 2 ditolak, tenor 3 OK, override 1.8jt = 690rb, multi paralel, flag budi=true/dedi=false, Dedi e2e usulan 3jt → final 2.5jt + WA-loan 1jt cair). Mobile: KYC +alamat/kantor/shareloc + OCR KTP (mlkit) + apply tenor 1/3 + jaminan + foto di detail + izin lokasi/kamera; Admin: LoanDetail nominal final + dokumen + LoanNew + Users/UserDetail flag telat + domisili/maps. Build: web ✅ APK 223MB ✅ admin ✅, analyze 0 error. **Web mobile: `mobile/build/web/` (serve statis /mobile/).**
 
 **Status board (1 Nov 2026):** ✅ SEMUA M SELESAI (M0–M8 + M-void/M-void2/M-autoapply + M6b/M6c/M7b/M7c). APK final + admin live + data demo + DEMO.md siap. File `docs/PRD.md` duplikat lama — acuan resmi `PRD.md` root.

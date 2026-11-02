@@ -82,7 +82,7 @@ create table public.loans (
   amount          bigint not null check (amount between 500000 and 20000000), -- Rp500rb - Rp20jt
   tenor_months    int not null check (tenor_months between 1 and 52),  -- v2.0: jumlah periode (weekly s/d 52 / monthly s/d 12)
   frequency       loan_frequency not null default 'weekly',            -- v2.0: mingguan|bulanan
-  interest_rate   numeric(5,2) not null default 15.00,  -- v2.0: flat 15%/periode (sementara)
+  interest_rate   numeric(5,2) not null default 20.00,  -- v3.0: flat 20%/periode
   requested_amount bigint,                                  -- v3.0: usulan nasabah (admin tentukan final saat approve)
   collateral_type text default '',                         -- v3.0: jenis jaminan (BPKB/sertifikat/dll)
   collateral_detail text default '',                       -- v3.0: detail jaminan
@@ -104,7 +104,7 @@ returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin() then
     new.status        = 'submitted';
-    new.interest_rate = 15.00;
+    new.interest_rate = 20.00;
     new.late_fee      = 0;
     new.decided_by    = null;
     new.decided_at    = null;

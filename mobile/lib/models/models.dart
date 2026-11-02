@@ -126,7 +126,7 @@ class Loan {
   final int amount;
   final int tenorMonths; // jumlah periode (weekly s/d 52 / monthly s/d 12)
   final String frequency; // weekly | monthly (v2.0 bank keliling)
-  final double interestRate; // flat % per periode (v2.0: 15.00)
+  final double interestRate; // flat % per periode (v3.0: 20.00)
   final int monthlyPayment; // cicilan per periode (nama kolom dipertahankan)
   final int lateFee;
   final String? collectedBy;
