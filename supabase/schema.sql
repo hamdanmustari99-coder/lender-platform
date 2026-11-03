@@ -622,7 +622,7 @@ create trigger profiles_guard before update on public.profiles
 
 -- kyc_documents
 create policy "own kyc read"   on public.kyc_documents for select using (auth.uid() = user_id or public.is_admin());
-create policy "own kyc write"  on public.kyc_documents for insert with check (auth.uid() = user_id);
+create policy "kyc write"      on public.kyc_documents for insert with check (auth.uid() = user_id or public.is_admin());  -- v3.2: admin boleh catat foto KTP nasabah
 create policy "admin kyc upd"  on public.kyc_documents for delete using (public.is_admin());
 
 -- emergency_contacts: borrower kelola miliknya; admin baca (+hapus)

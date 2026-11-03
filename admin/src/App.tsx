@@ -9,8 +9,6 @@ import Loans from './pages/Loans.tsx'
 import LoanNew from './pages/LoanNew.tsx'
 import NasabahBaru from './pages/NasabahBaru.tsx'
 import LoanDetail from './pages/LoanDetail.tsx'
-import Kyc from './pages/Kyc.tsx'
-import CalonNasabah from './pages/CalonNasabah.tsx'
 import Setoran from './pages/Setoran.tsx'
 import Laporan from './pages/Laporan.tsx'
 import Users from './pages/Users.tsx'
@@ -94,8 +92,6 @@ export default function App() {
           <Route path="loans" element={<Loans />} />
           <Route path="loans/new" element={<LoanNew />} />
           <Route path="loans/:id" element={<LoanDetail />} />
-          <Route path="kyc" element={<Kyc />} />
-          <Route path="calon" element={<CalonNasabah />} />
           <Route path="setoran" element={<Setoran />} />
           <Route path="laporan" element={<Laporan />} />
           <Route path="users" element={<Users />} />

@@ -493,6 +493,76 @@ export async function setKycStatus(
   if (error) throw error
 }
 
+// ---------- R2 (v3.2: foto via proxy lokal, secret tidak ke browser) ----------
+
+const R2_PROXY = import.meta.env.VITE_R2_PROXY || 'http://localhost:8787'
+
+export interface R2File {
+  key: string
+  url: string
+  size: number
+}
+
+/** Upload 1..N gambar ke R2 via proxy. folder: ktp | nasabah | jaminan */
+export async function uploadToR2(files: File[], folder = 'lainnya'): Promise<R2File[]> {
+  const fd = new FormData()
+  fd.append('folder', folder)
+  for (const f of files) fd.append('file', f, f.name)
+  const res = await fetch(`${R2_PROXY}/upload`, { method: 'POST', body: fd })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body?.error || `Upload R2 gagal (${res.status})`)
+  return (body.files ?? []) as R2File[]
+}
+
+/** Kompres gambar di browser sebelum upload (max 1280px, jpeg 0.72). Hemat R2. */
+export function compressImage(file: File, maxDim = 1280, quality = 0.72): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      try {
+        const scale = Math.min(1, maxDim / Math.max(img.width, img.height))
+        const w = Math.round(img.width * scale)
+        const h = Math.round(img.height * scale)
+        const cv = document.createElement('canvas')
+        cv.width = w
+        cv.height = h
+        cv.getContext('2d')!.drawImage(img, 0, 0, w, h)
+        URL.revokeObjectURL(url)
+        cv.toBlob(
+          (blob) => {
+            if (!blob) return reject(new Error('Kompres gambar gagal.'))
+            resolve(new File([blob], file.name.replace(/\.\w+$/, '.jpg'), { type: 'image/jpeg' }))
+          },
+          'image/jpeg',
+          quality,
+        )
+      } catch (e) {
+        URL.revokeObjectURL(url)
+        reject(e)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error('File bukan gambar valid.'))
+    }
+    img.src = url
+  })
+}
+
+/** Parse link Google Maps → {lat,lng} atau null. Dukung @lat,lng / ?q= / /maps/search/ */
+export function parseMapsLink(text: string): { lat: number; lng: number } | null {
+  const t = text.trim()
+  let m = t.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
+  if (m) return { lat: Number(m[1]), lng: Number(m[2]) }
+  m = t.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/)
+  if (m) return { lat: Number(m[1]), lng: Number(m[2]) }
+  m = t.match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/)
+  if (m && Math.abs(Number(m[1])) <= 90 && Math.abs(Number(m[2])) <= 180)
+    return { lat: Number(m[1]), lng: Number(m[2]) }
+  return null
+}
+
 // ---------- Storage (bucket PRIVATE 'kyc-documents') ----------
 
 export async function kycDocSignedUrl(storagePath: string): Promise<string> {

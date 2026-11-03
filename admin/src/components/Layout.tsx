@@ -4,8 +4,6 @@ import { supabase, isConfigured } from '../lib/supabase'
 const NAV = [
   { to: '/', label: 'Dashboard', end: true },
   { to: '/loans', label: 'Pinjaman', end: false },
-  { to: '/kyc', label: 'Verifikasi KYC', end: false },
-  { to: '/calon', label: 'Calon Nasabah', end: false },
   { to: '/setoran', label: 'Setoran', end: false },
   { to: '/laporan', label: 'Laporan', end: false },
   { to: '/users', label: 'Users', end: false },
