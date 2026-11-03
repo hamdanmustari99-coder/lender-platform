@@ -16,11 +16,17 @@ const {
   CLD_CLOUD_NAME,
   CLD_API_KEY,
   CLD_API_SECRET,
+  SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE,
   PORT = '8787',
 } = process.env
 
 if (!CLD_CLOUD_NAME || !CLD_API_KEY || !CLD_API_SECRET) {
   console.error('Cloudinary env belum lengkap — isi server/.env dulu.')
+  process.exit(1)
+}
+if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE) {
+  console.error('Supabase service_role belum ada — isi server/.env dulu.')
   process.exit(1)
 }
 
@@ -68,6 +74,36 @@ app.post('/upload', upload.array('file', 10), async (req, res) => {
   } catch (e) {
     console.error('Cloudinary upload gagal:', e?.message || e)
     res.status(500).json({ error: 'Upload ke Cloudinary gagal.' })
+  }
+})
+
+// POST /create-nasabah { email, password, full_name, phone } → { id }
+// Pakai service_role (bypass validasi email + tanpa kirim email).
+// DIPANGGIL admin web. Secret tidak pernah ke browser.
+app.post('/create-nasabah', express.json(), async (req, res) => {
+  try {
+    const { email, password, full_name, phone } = req.body || {}
+    if (!email || !password) return res.status(400).json({ error: 'Email + password wajib.' })
+    const r = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: full_name || '', phone: phone || '' },
+      }),
+    })
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok) return res.status(r.status).json({ error: body?.msg || body?.message || 'Gagal membuat akun.' })
+    res.json({ id: body.id })
+  } catch (e) {
+    console.error('create-nasabah gagal:', e?.message || e)
+    res.status(500).json({ error: 'Gagal membuat akun.' })
   }
 })
 

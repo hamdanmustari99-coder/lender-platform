@@ -21,6 +21,8 @@ create table public.profiles (
   tempat_lahir text      default '',
   birth_date  date,                              -- = tgl lahir KTP
   jenis_kelamin text     default '' check (jenis_kelamin in ('', 'L', 'P')),
+  gol_darah     text     default '',             -- v3.2: A|B|AB|O (sebaris JK di KTP)
+  berlaku_hingga date,                           -- v3.2: masa berlaku KTP (null = SEUMUR HIDUP)
   address     text       default '',             -- = alamat (nama jalan/no)
   rt_rw       text       default '',
   kelurahan   text       default '',

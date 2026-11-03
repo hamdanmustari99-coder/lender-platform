@@ -493,9 +493,31 @@ export async function setKycStatus(
   if (error) throw error
 }
 
-// ---------- R2 (v3.2: foto via proxy lokal, secret tidak ke browser) ----------
+// ---------- Server lokal (proxy upload + buat akun, secret di server) ----------
 
-const R2_PROXY = import.meta.env.VITE_R2_PROXY || 'http://localhost:8787'
+const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:8787'
+
+/** Buatkan akun nasabah via server (service_role, email dummy bebas). */
+export async function serverCreateNasabah(input: {
+  email: string
+  password: string
+  fullName: string
+  phone: string
+}): Promise<string> {
+  const res = await fetch(`${SERVER}/create-nasabah`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+      full_name: input.fullName,
+      phone: input.phone,
+    }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok || !body?.id) throw new Error(body?.error || `Gagal membuat akun (${res.status})`)
+  return body.id as string
+}
 
 export interface R2File {
   key: string
@@ -503,12 +525,12 @@ export interface R2File {
   size: number
 }
 
-/** Upload 1..N gambar ke R2 via proxy. folder: ktp | nasabah | jaminan */
+/** Upload 1..N gambar via server (Cloudinary). folder: ktp | nasabah | jaminan */
 export async function uploadToR2(files: File[], folder = 'lainnya'): Promise<R2File[]> {
   const fd = new FormData()
   fd.append('folder', folder)
   for (const f of files) fd.append('file', f, f.name)
-  const res = await fetch(`${R2_PROXY}/upload`, { method: 'POST', body: fd })
+  const res = await fetch(`${SERVER}/upload`, { method: 'POST', body: fd })
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body?.error || `Upload R2 gagal (${res.status})`)
   return (body.files ?? []) as R2File[]
