@@ -430,7 +430,7 @@ begin
     if pm.petugas_id is distinct from auth.uid() then
       raise exception 'Petugas hanya dapat mengoreksi transaksi miliknya sendiri';
     end if;
-    if pm.paid_at::date <> current_date then
+    if pm.paid_at::date <> (now() at time zone 'Asia/Jakarta')::date then
       raise exception 'Koreksi mandiri hanya untuk transaksi hari ini. Hubungi owner.';
     end if;
   end if;
@@ -445,7 +445,9 @@ begin
        set amount_paid = greatest(0, coalesce(amount_paid,0) - pm.amount)
      where id = pm.installment_id;
     update public.installments
-       set status = case when amount_paid >= amount then 'paid' else 'unpaid' end,
+       set status = case when amount_paid >= amount then 'paid'
+                         when due_date < (now() at time zone 'Asia/Jakarta')::date then 'overdue'
+                         else 'unpaid' end,
            paid_at = case when amount_paid >= amount then paid_at else null end
      where id = pm.installment_id;
   end if;
@@ -532,7 +534,7 @@ returns boolean language sql stable security definer set search_path = public as
     select 1 from public.installments i
     join public.loans l on l.id = i.loan_id
     where l.user_id = p_user_id
-      and (i.due_date < current_date and i.status <> 'paid'
+      and (i.due_date < (now() at time zone 'Asia/Jakarta')::date and i.status <> 'paid'
            or i.paid_at::date > i.due_date)
   );
 $$;
@@ -611,6 +613,12 @@ create policy "update own"   on public.profiles for update using (auth.uid() = i
 create or replace function public.profiles_guard_update()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
+  if auth.uid() is null then
+    return new;                                  -- v13: service_role / job internal
+  end if;
+  if coalesce(current_setting('role', true), '') = 'service_role' then
+    return new;
+  end if;
   if not public.is_admin() then
     if new.role is distinct from old.role or new.kyc_status is distinct from old.kyc_status then
       raise exception 'Tidak diizinkan mengubah role/kyc_status sendiri';
@@ -703,6 +711,128 @@ create index idx_loans_status    on public.loans(status);
 create index idx_inst_loan       on public.installments(loan_id);
 create index idx_notif_user      on public.notifications(user_id, is_read);
 create index idx_kyc_user        on public.kyc_documents(user_id);
+create index if not exists idx_inst_due on public.installments(due_date, status)
+  where status in ('unpaid', 'overdue');   -- v13: pemindaian overdue harian
+
+-- ============================================================
+-- 12b. v13 — OVERDUE OTOMATIS + CONVERT CALON 1-KLIK
+--      (patch live: supabase/m13_convert_overdue.sql)
+-- ============================================================
+create extension if not exists pg_cron;
+
+create or replace function public.mark_overdue_installments()
+returns int language plpgsql security definer set search_path = public as $$
+declare
+  v_today date := (now() at time zone 'Asia/Jakarta')::date;
+  v_count int := 0;
+  r record;
+begin
+  for r in
+    select i.id, i.seq, i.due_date,
+           i.amount - coalesce(i.amount_paid, 0) as sisa,
+           l.user_id
+      from public.installments i
+      join public.loans l on l.id = i.loan_id
+     where l.status in ('disbursed', 'active')
+       and i.status = 'unpaid'
+       and i.due_date < v_today
+  loop
+    update public.installments set status = 'overdue' where id = r.id;
+    insert into public.notifications (user_id, title, body, type)
+    values (r.user_id,
+            'Tagihan Terlambat',
+            'Cicilan #' || r.seq || ' sebesar Rp' || r.sisa ||
+            ' sudah lewat jatuh tempo (' || to_char(r.due_date, 'DD-MM-YYYY') ||
+            '). Mohon segera dibayar.',
+            'tagihan');
+    v_count := v_count + 1;
+  end loop;
+  return v_count;
+end;
+$$;
+revoke all on function public.mark_overdue_installments() from public, anon, authenticated;
+
+-- 00:00 WIB = 17:00 UTC hari sebelumnya
+select cron.schedule('danaku-mark-overdue', '0 17 * * *',
+                     'select public.mark_overdue_installments();');
+
+create or replace function public.convert_calon_internal(
+  p_calon_id uuid,
+  p_user_id uuid,
+  p_assign_route boolean default true
+)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  c record;
+  v_route boolean := false;
+  v_conflict uuid;
+begin
+  select * into c from public.calon_nasabah where id = p_calon_id for update;
+  if c.id is null then
+    raise exception 'Calon tidak ditemukan';
+  end if;
+  if c.status = 'jadi_nasabah' then
+    raise exception 'Calon ini sudah dikonversi jadi nasabah';
+  end if;
+  if c.status = 'ditolak' then
+    raise exception 'Calon ini sudah ditolak — ubah status ke "diproses" dulu';
+  end if;
+  if not exists (select 1 from public.profiles where id = p_user_id) then
+    raise exception 'Profil akun hasil convert tidak ditemukan';
+  end if;
+
+  if nullif(btrim(c.nik), '') is not null then
+    select id into v_conflict from public.profiles
+     where nik = btrim(c.nik) and id <> p_user_id limit 1;
+    if v_conflict is not null then
+      raise exception 'NIK % sudah dipakai nasabah lain', c.nik;
+    end if;
+  end if;
+
+  update public.profiles set
+    full_name       = coalesce(nullif(btrim(full_name), ''), nullif(c.nama, '')),
+    nik             = coalesce(nullif(btrim(nik), ''), nullif(btrim(c.nik), '')),
+    phone           = coalesce(nullif(btrim(phone), ''), nullif(btrim(c.phone), '')),
+    address         = coalesce(nullif(btrim(address), ''), nullif(btrim(c.alamat), '')),
+    current_address = coalesce(nullif(btrim(current_address), ''), nullif(btrim(c.alamat), '')),
+    wilayah         = coalesce(nullif(btrim(wilayah), ''), nullif(c.wilayah, '')),
+    petugas_id      = coalesce(petugas_id, c.petugas_id),
+    kyc_status      = 'verified'
+  where id = p_user_id;
+
+  if p_assign_route and c.petugas_id is not null then
+    insert into public.collection_routes (petugas_id, nasabah_id, wilayah, aktif)
+    values (c.petugas_id, p_user_id, coalesce(c.wilayah, ''), true)
+    on conflict (petugas_id, nasabah_id)
+      do update set aktif = true, wilayah = excluded.wilayah;
+    v_route := true;
+  end if;
+
+  update public.calon_nasabah
+     set status = 'jadi_nasabah',
+         converted_user_id = p_user_id,
+         owner_note = case when coalesce(btrim(owner_note), '') = ''
+                           then 'Convert 1-klik ' ||
+                                to_char(now() at time zone 'Asia/Jakarta', 'DD-MM-YYYY HH24:MI')
+                           else owner_note end
+   where id = p_calon_id;
+
+  insert into public.notifications (user_id, title, body, type)
+  values (p_user_id, 'Akun Nasabah Aktif',
+          'Pendaftaran Anda telah diproses. Silakan hubungi petugas untuk pengajuan pinjaman.',
+          'info');
+
+  return jsonb_build_object(
+    'user_id', p_user_id,
+    'calon_id', p_calon_id,
+    'route_assigned', v_route,
+    'petugas_id', c.petugas_id
+  );
+end;
+$$;
+revoke all on function public.convert_calon_internal(uuid, uuid, boolean)
+  from public, anon, authenticated;
+grant execute on function public.convert_calon_internal(uuid, uuid, boolean) to service_role;
 
 -- 14. SETELAH INI, jalankan manual di Dashboard:
 --   a. Storage > New bucket: name = 'kyc-documents', PRIVATE bucket.

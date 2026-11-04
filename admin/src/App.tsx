@@ -8,6 +8,7 @@ import Dashboard from './pages/Dashboard.tsx'
 import Loans from './pages/Loans.tsx'
 import LoanNew from './pages/LoanNew.tsx'
 import NasabahBaru from './pages/NasabahBaru.tsx'
+import CalonNasabah from './pages/CalonNasabah.tsx'
 import LoanDetail from './pages/LoanDetail.tsx'
 import Setoran from './pages/Setoran.tsx'
 import Laporan from './pages/Laporan.tsx'
@@ -95,6 +96,7 @@ export default function App() {
           <Route path="setoran" element={<Setoran />} />
           <Route path="laporan" element={<Laporan />} />
           <Route path="users" element={<Users />} />
+          <Route path="calon" element={<CalonNasabah />} />
           <Route path="users/new" element={<NasabahBaru />} />
           <Route path="users/:id" element={<UserDetail />} />
           <Route path="*" element={<Navigate to="/" replace />} />

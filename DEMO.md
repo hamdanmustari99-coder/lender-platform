@@ -18,7 +18,7 @@ HP petugas login `petugas.udin@danaku.test / Test1234!`, HP nasabah `borrower.b@
 1. **Dashboard**: kartu setoran hari ini (nambah dari skenario A) + blok Nunggak (klik Budi → cicilan telat + riwayat bayar + link detail).
 2. **Setoran**: rincian per petugas → contoh koreksi (kalau skenario B dilakukan) + tombol Koreksi versi web.
 3. **Laporan**: 4 kartu + tabel nunggak + piutang per nasabah.
-4. **Calon Nasabah**: tunjukkan Dedi (jadi_nasabah, link UUID) sebagai contoh convert.
+4. **Calon Nasabah**: tunjukkan Rizky (jadi_nasabah) sebagai hasil **convert 1-klik** — bandingkan dengan Dedi yang dulu 2 langkah. Kalau ada calon `baru`, tekan **Convert 1-klik** dan tunjukkan akun + rute langsung jadi.
 5. **Pinjaman → detail Budi**: total tagihan / sudah dibayar / sisa hutang + jadwal.
 
 ## Skenario D — Nasabah (2 menit, HP kedua / Chrome)
@@ -40,4 +40,6 @@ HP petugas login `petugas.udin@danaku.test / Test1234!`, HP nasabah `borrower.b@
 - Data `@danaku.test` = data contoh, dihapus sebelum produksi.
 - Bunga 20% + denda 0.
 - Skema: Rp1jt/10 minggu = Rp120rb/minggu (total kembali Rp1,2jt).
-- Yang belum ada: convert calon 1-klik (sekarang 2 langkah), status overdue otomatis, FCM.
+- Convert calon sekarang **1 klik** di menu **Calon Nasabah** (akun + profil + rute tagihan sekaligus).
+- Status **Terlambat** muncul otomatis tiap tengah malam WIB (job harian), jadi rute petugas pagi sudah benar tanpa admin menandai manual.
+- Yang belum ada: FCM push, denda nominal, cetak kartu angsuran.

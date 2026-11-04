@@ -553,6 +553,30 @@ export async function resolveMapsLink(url: string): Promise<{ lat: number; lng: 
   return { lat: Number(body.lat), lng: Number(body.lng) }
 }
 
+export interface ConvertCalonResult {
+  user_id: string
+  calon_id: string
+  route_assigned: boolean
+  petugas_id: string | null
+  email: string
+}
+
+/** v13: convert calon → akun nasabah dalam satu klik (akun + profil + rute). */
+export async function convertCalon(
+  calonId: string,
+  assignRoute = true,
+): Promise<ConvertCalonResult> {
+  const res = await fetch(FN_URL, {
+    method: 'POST',
+    headers: await edgeHeaders(true),
+    body: JSON.stringify({ action: 'convert-calon', calon_id: calonId, assign_route: assignRoute }),
+  })
+  if (!res.ok) await edgeErr(res)
+  const body = await res.json()
+  if (!body?.user_id) throw new Error('Convert gagal: akun tidak terbentuk.')
+  return body as ConvertCalonResult
+}
+
 export interface R2File {
   key: string
   url: string

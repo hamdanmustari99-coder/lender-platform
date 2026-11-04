@@ -546,13 +546,15 @@ class SupabaseService {
           ((l as Map)['id'] as String): Map<String, dynamic>.from(l)
       };
 
-      // 3) cicilan unpaid + info nasabah
+      // 3) cicilan belum lunas + info nasabah
+      // v13: status 'overdue' ditulis job harian — rute harus tetap memuatnya,
+      // kalau tidak seluruh tunggakan hilang dari HP petugas.
       final insts = await client
           .from('installments')
           .select('*, loans!inner(id)')
           .inFilter(
               'loan_id', loanById.keys.toList().map((e) => e).toList())
-          .eq('status', 'unpaid')
+          .neq('status', 'paid')
           .order('due_date', ascending: true)
           .limit(200)
           .timeout(const Duration(seconds: 20));

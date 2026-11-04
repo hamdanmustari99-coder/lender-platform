@@ -146,6 +146,75 @@ Deno.serve(async (req) => {
       return json({ id: data.user?.id })
     }
 
+    // --- v13: convert calon nasabah 1 langkah -------------------------------
+    // Akun auth dibuat service_role (email dummy nNIK@danaku.test), lalu
+    // convert_calon_internal mengisi profil, auto-assign rute, tutup baris calon.
+    // Kalau langkah DB gagal, akun auth yang terlanjur dibuat dihapus lagi.
+    if (action === 'convert-calon') {
+      const calonId = String(body?.calon_id ?? '')
+      if (!calonId) return json({ error: 'calon_id wajib.' }, 400)
+
+      const { data: calon, error: cErr } = await admin
+        .from('calon_nasabah')
+        .select('id, nama, nik, phone, alamat, wilayah, status, ktp_path, petugas_id')
+        .eq('id', calonId)
+        .maybeSingle()
+      if (cErr) return json({ error: cErr.message }, 400)
+      if (!calon) return json({ error: 'Calon tidak ditemukan.' }, 404)
+      if (calon.status === 'jadi_nasabah') return json({ error: 'Calon ini sudah jadi nasabah.' }, 409)
+      if (calon.status === 'ditolak') return json({ error: 'Calon ini berstatus ditolak.' }, 409)
+
+      const nik = String(calon.nik ?? '').trim()
+      if (!/^\d{16}$/.test(nik)) return json({ error: 'NIK calon bukan 16 digit — perbaiki dulu.' }, 400)
+
+      // NIK sudah punya akun? jangan bikin akun kembar.
+      const { data: dup } = await admin
+        .from('profiles')
+        .select('id, email')
+        .eq('nik', nik)
+        .maybeSingle()
+      if (dup) {
+        return json(
+          { error: `NIK ini sudah terdaftar sebagai akun (${dup.email}). Gunakan convert manual atau koreksi NIK.` },
+          409,
+        )
+      }
+
+      const email = `n${nik}@danaku.test`
+      const bytes = new Uint8Array(12)
+      crypto.getRandomValues(bytes)
+      const password = btoa(String.fromCharCode(...bytes)) + 'Aa1!'
+
+      const { data: created, error: uErr } = await admin.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { full_name: calon.nama ?? '', phone: calon.phone ?? '' },
+      })
+      if (uErr || !created?.user) return json({ error: uErr?.message || 'Gagal membuat akun.' }, 400)
+      const userId = created.user.id
+
+      const { data: rpc, error: rErr } = await admin.rpc('convert_calon_internal', {
+        p_calon_id: calonId,
+        p_user_id: userId,
+        p_assign_route: body?.assign_route !== false,
+      })
+      if (rErr) {
+        await admin.auth.admin.deleteUser(userId).catch(() => {})
+        return json({ error: rErr.message }, 400)
+      }
+
+      // Foto KTP lapangan (path calon/...) disalin jadi dokumen KYC resmi.
+      if (calon.ktp_path) {
+        await admin
+          .from('kyc_documents')
+          .insert({ user_id: userId, doc_type: 'ktp', storage_path: calon.ktp_path })
+          .then(() => {}, () => {})
+      }
+
+      return json({ ...rpc, email, calon_id: calonId })
+    }
+
     if (action === 'resolve-maps') {
       const coords = await resolveMaps(String(body?.url ?? ''))
       return json(coords)
