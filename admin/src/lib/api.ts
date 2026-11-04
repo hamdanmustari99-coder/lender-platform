@@ -41,6 +41,7 @@ export interface Profile {
   pekerjaan: string | null
   kewarganegaraan: string | null
   phone: string | null
+  foto_path: string | null
   kyc_status: KycStatus
   created_at: string
 }
@@ -450,6 +451,27 @@ export async function fetchLoanDocuments(loanId: string): Promise<LoanDocument[]
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as LoanDocument[]
+}
+
+export interface NasabahDocument {
+  id: string
+  user_id: string
+  doc_type: 'ktp' | 'selfie' | 'jaminan' | 'lainnya'
+  label: string
+  url: string
+  note: string
+  created_at: string
+}
+
+/** M14: dokumen milik nasabah (foto KTP, foto diri, foto jaminan). */
+export async function fetchNasabahDocuments(userId: string): Promise<NasabahDocument[]> {
+  const { data, error } = await supabase
+    .from('nasabah_documents')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data ?? []) as NasabahDocument[]
 }
 
 export async function rejectLoan(loanId: string, reason: string): Promise<void> {

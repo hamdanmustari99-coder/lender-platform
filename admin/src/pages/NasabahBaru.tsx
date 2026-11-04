@@ -384,6 +384,46 @@ export default function NasabahBaru() {
             user_id: newId, doc_type: 'ktp', storage_path: ktpUrl,
           })
         } catch { /* abaikan */ }
+        // Juga catat di nasabah_documents supaya tampil di detail nasabah
+        try {
+          await supabase.from('nasabah_documents').insert({
+            user_id: newId, doc_type: 'ktp', label: 'Foto KTP', url: ktpUrl, note: '',
+          })
+        } catch { /* abaikan */ }
+      }
+
+      // Simpan foto diri nasabah ke nasabah_documents juga (foto_path sudah
+      // dipakai di profil, ini cadangan biar konsisten dengan dokumen lain).
+      if (fotoUrl) {
+        try {
+          await supabase.from('nasabah_documents').insert({
+            user_id: newId, doc_type: 'selfie', label: 'Foto Nasabah', url: fotoUrl, note: '',
+          })
+        } catch { /* abaikan */ }
+      }
+
+      // Simpan foto jaminan ke nasabah_documents (bukan loan_documents —
+      // jaminan didaftarkan sebelum pinjaman ada).
+      if (buktiUrls.length > 0 || jaminan) {
+        try {
+          const rows = buktiUrls.map((u) => ({
+            user_id: newId,
+            doc_type: 'jaminan',
+            label: jaminan.trim(),
+            url: u,
+            note: jaminanDetail.trim(),
+          }))
+          if (rows.length === 0) {
+            rows.push({
+              user_id: newId,
+              doc_type: 'jaminan',
+              label: jaminan.trim(),
+              url: '',
+              note: jaminanDetail.trim(),
+            })
+          }
+          await supabase.from('nasabah_documents').insert(rows)
+        } catch { /* abaikan */ }
       }
 
       const extra = [

@@ -82,7 +82,6 @@ export default function Users() {
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
               <th className="px-4 py-3">Nama</th>
-              <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Telepon</th>
               <th className="px-4 py-3">Role</th>
               <th className="px-4 py-3">KYC</th>
@@ -98,7 +97,6 @@ export default function Users() {
                 <td className="px-4 py-3 font-medium text-slate-800">
                   {p.full_name || '(tanpa nama)'}
                 </td>
-                <td className="px-4 py-3 text-slate-600">{p.email}</td>
                 <td className="px-4 py-3 text-slate-600">{p.phone || '—'}</td>
                 <td className="px-4 py-3">
                   <span
@@ -151,7 +149,7 @@ export default function Users() {
             ))}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={9} className="py-8 text-center text-slate-400">
+                <td colSpan={8} className="py-8 text-center text-slate-400">
                   Tidak ada user yang cocok
                 </td>
               </tr>

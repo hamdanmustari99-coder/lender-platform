@@ -3,11 +3,12 @@ import { Link, useParams } from 'react-router-dom'
 import {
   fetchInstallments,
   fetchLoansByUser,
+  fetchNasabahDocuments,
   fetchNasabahTelatFlag,
   fetchProfile,
   subscribeToTables,
 } from '../lib/api'
-import type { Installment, Loan, Profile } from '../lib/api'
+import type { Installment, Loan, NasabahDocument, Profile } from '../lib/api'
 import BorrowerEmergencyContacts from '../components/EmergencyContacts'
 import { fmtDate, fmtRp, KYC_STATUS_CLASS, KYC_STATUS_LABEL, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
@@ -33,6 +34,7 @@ export default function UserDetail() {
   const [loans, setLoans] = useState<Loan[]>([])
   const [installments, setInstallments] = useState<Record<string, Installment[]>>({})
   const [telatFlag, setTelatFlag] = useState<boolean | null>(null)
+  const [docs, setDocs] = useState<NasabahDocument[]>([])
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -47,6 +49,10 @@ export default function UserDetail() {
       setLoans(l)
       if (typeof flag === 'boolean') setTelatFlag(flag)
       setError(null)
+      // Dokumen nasabah (foto diri, KTP, jaminan) — gagal = tampilkan kosong
+      fetchNasabahDocuments(id)
+        .then(setDocs)
+        .catch(() => setDocs([]))
       if (l.length > 0) {
         const entries = await Promise.all(
           l.map(async (loan) => {
@@ -87,6 +93,10 @@ export default function UserDetail() {
     profile.office_lat != null && profile.office_lng != null
       ? `https://maps.google.com/?q=${profile.office_lat},${profile.office_lng}`
       : null
+  const fotoDocs = docs.filter((d) => d.doc_type === 'selfie' && d.url)
+  const ktpDocs = docs.filter((d) => d.doc_type === 'ktp' && d.url)
+  const jaminanDocs = docs.filter((d) => d.doc_type === 'jaminan')
+  const fotoNasabah = profile.foto_path || fotoDocs[0]?.url || ''
 
   return (
     <div className="space-y-4">
@@ -110,11 +120,94 @@ export default function UserDetail() {
         )}
       </div>
 
+      {/* Foto & dokumen nasabah */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="mb-2 text-xs font-semibold text-slate-500">Foto Nasabah</div>
+          {fotoNasabah ? (
+            <a href={fotoNasabah} target="_blank" rel="noreferrer">
+              <img
+                src={fotoNasabah}
+                alt={profile.full_name}
+                className="h-40 w-full rounded-lg border border-slate-200 object-cover"
+              />
+            </a>
+          ) : (
+            <div className="flex h-40 items-center justify-center rounded-lg border-2 border-dashed border-slate-200 text-xs text-slate-400">
+              Belum ada foto
+            </div>
+          )}
+        </div>
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="mb-2 text-xs font-semibold text-slate-500">Foto KTP</div>
+          {ktpDocs.length > 0 ? (
+            <a href={ktpDocs[0].url} target="_blank" rel="noreferrer">
+              <img
+                src={ktpDocs[0].url}
+                alt="KTP"
+                className="h-40 w-full rounded-lg border border-slate-200 object-cover"
+              />
+            </a>
+          ) : (
+            <div className="flex h-40 items-center justify-center rounded-lg border-2 border-dashed border-slate-200 text-xs text-slate-400">
+              Belum ada foto KTP
+            </div>
+          )}
+        </div>
+        <div className="rounded-xl bg-white p-4 shadow-sm">
+          <div className="mb-2 text-xs font-semibold text-slate-500">Jaminan</div>
+          {jaminanDocs.filter((d) => d.url).length > 0 ? (
+            <a href={jaminanDocs.find((d) => d.url)!.url} target="_blank" rel="noreferrer">
+              <img
+                src={jaminanDocs.find((d) => d.url)!.url}
+                alt="Jaminan"
+                className="h-40 w-full rounded-lg border border-slate-200 object-cover"
+              />
+            </a>
+          ) : (
+            <div className="flex h-40 items-center justify-center rounded-lg border-2 border-dashed border-slate-200 text-xs text-slate-400">
+              {jaminanDocs.length > 0 ? jaminanDocs[0].label || 'Ada jaminan (tanpa foto)' : 'Belum ada jaminan'}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Detail jaminan (semua foto + keterangan) */}
+      {jaminanDocs.length > 0 && (
+        <div className="rounded-xl bg-white p-5 shadow-sm">
+          <div className="mb-3 text-sm font-semibold text-slate-700">
+            Detail Jaminan ({jaminanDocs.length})
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {jaminanDocs.map((d) => (
+              <div key={d.id} className="rounded-lg border border-slate-200 p-3">
+                {d.url ? (
+                  <a href={d.url} target="_blank" rel="noreferrer">
+                    <img
+                      src={d.url}
+                      alt={d.label || 'jaminan'}
+                      className="h-28 w-full rounded border border-slate-100 object-cover"
+                    />
+                  </a>
+                ) : (
+                  <div className="flex h-28 items-center justify-center rounded border border-dashed border-slate-200 text-xs text-slate-400">
+                    Tanpa foto
+                  </div>
+                )}
+                <div className="mt-2 text-sm font-medium text-slate-800">
+                  {d.label || 'Jaminan'}
+                </div>
+                {d.note && <div className="text-xs text-slate-500">{d.note}</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="mb-3 text-sm font-semibold text-slate-700">Profil (KTP)</div>
           <dl className="space-y-2 text-sm">
-            <Row label="Email" value={profile.email} />
             <Row label="No. HP Utama" value={profile.phone || '—'} />
             <Row label="NIK" value={profile.nik || '—'} />
             <Row
@@ -218,6 +311,11 @@ export default function UserDetail() {
                 </a>
               </dd>
             )}
+            {profile.home_lat != null && profile.home_lng != null && (
+              <dd className="text-xs text-slate-400">
+                {profile.home_lat.toFixed(6)}, {profile.home_lng.toFixed(6)}
+              </dd>
+            )}
           </div>
           <div>
             <dt className="text-slate-500">Alamat Kantor</dt>
@@ -232,6 +330,11 @@ export default function UserDetail() {
                 >
                   📍 Lihat di Google Maps
                 </a>
+              </dd>
+            )}
+            {profile.office_lat != null && profile.office_lng != null && (
+              <dd className="text-xs text-slate-400">
+                {profile.office_lat.toFixed(6)}, {profile.office_lng.toFixed(6)}
               </dd>
             )}
           </div>
