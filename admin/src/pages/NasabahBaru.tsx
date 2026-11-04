@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import {
   compressImage,
   parseMapsLink,
+  resolveMapsLink,
   serverCreateNasabah,
   uploadToR2,
 } from '../lib/api'
@@ -69,12 +70,41 @@ export default function NasabahBaru() {
 
   const domisiliLoc = parseMapsLink(domisiliLink)
   const kantorLoc = parseMapsLink(kantorLink)
+  // Koordinat hasil resolve link pendek (goo.gl) — prioritas di atas parse lokal
+  const [domisiliResolved, setDomisiliResolved] = useState<{ lat: number; lng: number } | null>(null)
+  const [kantorResolved, setKantorResolved] = useState<{ lat: number; lng: number } | null>(null)
+  const [resolveBusy, setResolveBusy] = useState<'rumah' | 'kantor' | null>(null)
+  const domisiliFinal = domisiliResolved ?? domisiliLoc
+  const kantorFinal = kantorResolved ?? kantorLoc
 
-  const valid =
-    nama.trim().length >= 3 &&
-    /^\d{16}$/.test(nik.trim()) &&
-    /^(0|62|\+62)8\d{7,11}$/.test(phone.trim()) &&
-    domisili.trim().length >= 10
+  const resolveLink = async (which: 'rumah' | 'kantor') => {
+    const url = which === 'rumah' ? domisiliLink : kantorLink
+    if (!url.trim()) return
+    const local = parseMapsLink(url)
+    if (local) {
+      if (which === 'rumah') setDomisiliResolved(local)
+      else setKantorResolved(local)
+      return
+    }
+    setResolveBusy(which)
+    try {
+      const r = await resolveMapsLink(url)
+      if (which === 'rumah') setDomisiliResolved(r)
+      else setKantorResolved(r)
+    } catch (e) {
+      setError(`Link ${which === 'rumah' ? 'rumah' : 'kantor'}: ${e instanceof Error ? e.message : e}`)
+    } finally {
+      setResolveBusy(null)
+    }
+  }
+
+  const checks = [
+    { ok: nama.trim().length >= 3, msg: 'nama (min 3 huruf)' },
+    { ok: /^\d{16}$/.test(nik.trim()), msg: 'NIK 16 digit angka' },
+    { ok: /^(0|62|\+62)8\d{7,11}$/.test(phone.replace(/[\s.-]/g, '')), msg: 'HP format 08… (tanpa spasi/titik)' },
+    { ok: domisili.trim().length >= 10, msg: 'domisili (min 10 huruf)' },
+  ]
+  const valid = checks.every((c) => c.ok)
 
   const pickPreview = (f: File | null, set: (u: string) => void) => {
     if (!f) return
@@ -336,10 +366,10 @@ export default function NasabahBaru() {
         phone: phone.trim(),
         current_address: domisili.trim(),
         office_address: kantor.trim(),
-        home_lat: domisiliLoc?.lat ?? null,
-        home_lng: domisiliLoc?.lng ?? null,
-        office_lat: kantorLoc?.lat ?? null,
-        office_lng: kantorLoc?.lng ?? null,
+        home_lat: domisiliFinal?.lat ?? null,
+        home_lng: domisiliFinal?.lng ?? null,
+        office_lat: kantorFinal?.lat ?? null,
+        office_lng: kantorFinal?.lng ?? null,
         foto_path: fotoUrl,
         kyc_status: 'verified',
       }).eq('id', newId)
@@ -363,8 +393,8 @@ export default function NasabahBaru() {
       setNama(''); setNik(''); setTempatLahir(''); setTglLahir(''); setJk(''); setGolDarah('')
       setAgama(''); setStatusKawin(''); setPekerjaan(''); setKewarganegaraan('WNI'); setBerlakuHingga('')
       setKtpAlamat(''); setKtpRtRw(''); setKtpKel(''); setKtpKec('')
-      setKtpFile(null); setKtpPrev(''); setDomisili(''); setDomisiliLink('')
-      setKantor(''); setKantorLink(''); setPhone(''); setFotoFile(null); setFotoPrev('')
+      setKtpFile(null); setKtpPrev(''); setDomisili(''); setDomisiliLink(''); setDomisiliResolved(null)
+      setKantor(''); setKantorLink(''); setKantorResolved(null); setPhone(''); setFotoFile(null); setFotoPrev('')
       setJaminan(''); setJaminanDetail(''); setBuktiFiles([]); setBuktiPrev([])
     } catch (e) {
       setError(errMsg(e))
@@ -443,13 +473,23 @@ export default function NasabahBaru() {
         <div><label className={lbl}>Alamat tinggal saat ini *</label>
           <textarea rows={2} value={domisili} onChange={(e) => setDomisili(e.target.value)} placeholder="cth: Jl. Mawar No. 12, Cibiru, Bandung" className={inp} /></div>
         <div><label className={lbl}>Link Maps rumah (dari WA nasabah)</label>
-          <input value={domisiliLink} onChange={(e) => setDomisiliLink(e.target.value)} placeholder="tempel link Google Maps…" className={`${inp} font-mono text-xs`} />
-          {domisiliLoc && <a href={`https://maps.google.com/?q=${domisiliLoc.lat},${domisiliLoc.lng}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 hover:underline">📍 {domisiliLoc.lat.toFixed(6)}, {domisiliLoc.lng.toFixed(6)} — buka peta</a>}</div>
+          <div className="flex gap-2">
+            <input value={domisiliLink} onChange={(e) => { setDomisiliLink(e.target.value); setDomisiliResolved(null) }} placeholder="tempel link Google Maps… (panjang maupun goo.gl)" className={`${inp} font-mono text-xs`} />
+            <button type="button" disabled={!domisiliLink.trim() || resolveBusy === 'rumah'} onClick={() => void resolveLink('rumah')} className="shrink-0 rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50">
+              {resolveBusy === 'rumah' ? '…' : '🎯 Cari'}
+            </button>
+          </div>
+          {domisiliFinal && <a href={`https://maps.google.com/?q=${domisiliFinal.lat},${domisiliFinal.lng}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 hover:underline">📍 {domisiliFinal.lat.toFixed(6)}, {domisiliFinal.lng.toFixed(6)} — buka peta</a>}</div>
         <div><label className={lbl}>Alamat kantor</label>
           <textarea rows={2} value={kantor} onChange={(e) => setKantor(e.target.value)} placeholder="cth: Pasar Cibiru Blok B No. 5" className={inp} /></div>
         <div><label className={lbl}>Link Maps kantor</label>
-          <input value={kantorLink} onChange={(e) => setKantorLink(e.target.value)} placeholder="tempel link Google Maps…" className={`${inp} font-mono text-xs`} />
-          {kantorLoc && <a href={`https://maps.google.com/?q=${kantorLoc.lat},${kantorLoc.lng}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 hover:underline">📍 {kantorLoc.lat.toFixed(6)}, {kantorLoc.lng.toFixed(6)} — buka peta</a>}</div>
+          <div className="flex gap-2">
+            <input value={kantorLink} onChange={(e) => { setKantorLink(e.target.value); setKantorResolved(null) }} placeholder="tempel link Google Maps…" className={`${inp} font-mono text-xs`} />
+            <button type="button" disabled={!kantorLink.trim() || resolveBusy === 'kantor'} onClick={() => void resolveLink('kantor')} className="shrink-0 rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white hover:bg-sky-700 disabled:opacity-50">
+              {resolveBusy === 'kantor' ? '…' : '🎯 Cari'}
+            </button>
+          </div>
+          {kantorFinal && <a href={`https://maps.google.com/?q=${kantorFinal.lat},${kantorFinal.lng}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 hover:underline">📍 {kantorFinal.lat.toFixed(6)}, {kantorFinal.lng.toFixed(6)} — buka peta</a>}</div>
       </div>
 
       {/* F-G. KONTAK + FOTO */}
@@ -497,6 +537,11 @@ export default function NasabahBaru() {
         <button disabled={busy || !valid} onClick={() => void submit()} className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
           {busy ? 'Mendaftarkan…' : 'Daftarkan Nasabah'}
         </button>
+        {!valid && (
+          <p className="text-xs text-amber-700">
+            Belum bisa diklik — kurang: {checks.filter((c) => !c.ok).map((c) => c.msg).join(', ')}.
+          </p>
+        )}
       </div>
     </div>
   )

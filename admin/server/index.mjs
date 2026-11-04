@@ -107,6 +107,43 @@ app.post('/create-nasabah', express.json(), async (req, res) => {
   }
 })
 
+// GET /resolve-maps?url=... → { lat, lng } | { error }
+// Ikuti redirect (goo.gl/maps.app.goo.gl) + parse koordinat dari URL final.
+app.get('/resolve-maps', async (req, res) => {
+  try {
+    let u = String(req.query.url || '').trim()
+    if (!u) return res.status(400).json({ error: 'URL kosong.' })
+    if (!/^https?:\/\//i.test(u)) u = 'https://' + u
+    if (!/google|goo\.gl|maps\.app/i.test(u)) {
+      return res.status(400).json({ error: 'Bukan link Google Maps.' })
+    }
+    const r = await fetch(u, { method: 'GET', redirect: 'follow', headers: { 'User-Agent': 'Mozilla/5.0' } })
+    const finalUrl = r.url || u
+    let m = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/)
+    if (!m) m = finalUrl.match(/[?&](?:q|query)=(-?\d+\.\d+),(-?\d+\.\d+)/)
+    if (!m) {
+      const html = await r.text().catch(() => '')
+      // cari "lat":x,"lng":y ATAU array [lat,lng] ATAU meta center
+      m = html.match(/"[a-z_]*lat[^a-z]*":\s*(-?\d+\.\d+)[^}]{0,80}?"[a-z_]*l(?:ng|on)[^a-z]*":\s*(-?\d+\.\d+)/i)
+        || html.match(/\[\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*\]/)
+        || html.match(/center[=:]\s*(-?\d+\.\d+)[,%20]+(-?\d+\.\d+)/i)
+      if (m) {
+        const lat = Number(m[1]), lng = Number(m[2])
+        if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return res.json({ lat, lng })
+      }
+      return res.status(422).json({ error: 'Koordinat tidak ditemukan di link itu. Minta nasabah kirim ulang via Share > Copy link.' })
+    }
+    const lat = Number(m[1]), lng = Number(m[2])
+    if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+      return res.status(422).json({ error: 'Koordinat di luar jangkauan.' })
+    }
+    res.json({ lat, lng })
+  } catch (e) {
+    console.error('resolve-maps gagal:', e?.message || e)
+    res.status(500).json({ error: 'Gagal membuka link.' })
+  }
+})
+
 app.listen(Number(PORT), () =>
   console.log(`Upload proxy (Cloudinary) jalan di http://localhost:${PORT}`),
 )

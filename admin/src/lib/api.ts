@@ -493,30 +493,64 @@ export async function setKycStatus(
   if (error) throw error
 }
 
-// ---------- Server lokal (proxy upload + buat akun, secret di server) ----------
+// ---------- Edge Function (supabase/functions/danaku-api) ----------
+// Semua operasi ber-secret (buat akun, upload foto, resolve Maps) lewat sini.
+// Token admin dikirim otomatis → function cek role di server.
 
-const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:8787'
+const FN_URL = `${(import.meta.env.VITE_SUPABASE_URL as string | undefined) ?? ''}/functions/v1/danaku-api`
 
-/** Buatkan akun nasabah via server (service_role, email dummy bebas). */
+async function edgeHeaders(json = false): Promise<HeadersInit> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+  const h: HeadersInit = {}
+  if (json) h['Content-Type'] = 'application/json'
+  if (session?.access_token) h.Authorization = `Bearer ${session.access_token}`
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+  if (anon) h.apikey = anon
+  return h
+}
+
+async function edgeErr(res: Response): Promise<never> {
+  const body = await res.json().catch(() => ({}))
+  throw new Error(body?.error || `Server error (${res.status})`)
+}
+
+/** Buatkan akun nasabah (service_role di server, email dummy bebas). */
 export async function serverCreateNasabah(input: {
   email: string
   password: string
   fullName: string
   phone: string
 }): Promise<string> {
-  const res = await fetch(`${SERVER}/create-nasabah`, {
+  const res = await fetch(FN_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: await edgeHeaders(true),
     body: JSON.stringify({
+      action: 'create-nasabah',
       email: input.email,
       password: input.password,
       full_name: input.fullName,
       phone: input.phone,
     }),
   })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok || !body?.id) throw new Error(body?.error || `Gagal membuat akun (${res.status})`)
+  if (!res.ok) await edgeErr(res)
+  const body = await res.json()
+  if (!body?.id) throw new Error('Gagal membuat akun.')
   return body.id as string
+}
+
+/** Selesaikan link Maps pendek (goo.gl) via server → {lat,lng}. */
+export async function resolveMapsLink(url: string): Promise<{ lat: number; lng: number }> {
+  const res = await fetch(FN_URL, {
+    method: 'POST',
+    headers: await edgeHeaders(true),
+    body: JSON.stringify({ action: 'resolve-maps', url }),
+  })
+  if (!res.ok) await edgeErr(res)
+  const body = await res.json()
+  if (body?.lat == null) throw new Error('Koordinat tidak ditemukan.')
+  return { lat: Number(body.lat), lng: Number(body.lng) }
 }
 
 export interface R2File {
@@ -525,14 +559,14 @@ export interface R2File {
   size: number
 }
 
-/** Upload 1..N gambar via server (Cloudinary). folder: ktp | nasabah | jaminan */
+/** Upload 1..N gambar via Edge Function (Cloudinary). folder: ktp | nasabah | jaminan */
 export async function uploadToR2(files: File[], folder = 'lainnya'): Promise<R2File[]> {
   const fd = new FormData()
   fd.append('folder', folder)
   for (const f of files) fd.append('file', f, f.name)
-  const res = await fetch(`${SERVER}/upload`, { method: 'POST', body: fd })
-  const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(body?.error || `Upload R2 gagal (${res.status})`)
+  const res = await fetch(FN_URL, { method: 'POST', headers: await edgeHeaders(), body: fd })
+  if (!res.ok) await edgeErr(res)
+  const body = await res.json()
   return (body.files ?? []) as R2File[]
 }
 

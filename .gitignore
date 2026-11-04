@@ -19,3 +19,6 @@ mobile/.flutter-plugins*
 # OS
 .DS_Store
 Thumbs.db
+
+# supabase CLI temp
+supabase/.temp/
