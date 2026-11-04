@@ -134,15 +134,77 @@ Deno.serve(async (req) => {
     const action = String(body?.action ?? '')
 
     if (action === 'create-nasabah') {
-      const { email, password, full_name, phone } = body
+      const { email, password, full_name, phone, nik } = body
       if (!email || !password) return json({ error: 'Email + password wajib.' }, 400)
+
+      // NIK sudah punya akun? Tolak lebih awal dengan pesan yang jelas.
+      // (profiles.nik diisi frontend SETELAH akun dibuat, jadi ini hanya
+      //  menangkap nasabah yang registrasinya sudah tuntas.)
+      const nikKey = String(nik ?? '').trim()
+      if (nikKey) {
+        const { data: byNik } = await admin
+          .from('profiles')
+          .select('id, full_name')
+          .eq('nik', nikKey)
+          .maybeSingle()
+        if (byNik) {
+          return json(
+            {
+              error: `NIK ${nikKey} sudah terdaftar${
+                byNik.full_name ? ` atas nama ${byNik.full_name}` : ''
+              }. Cari di daftar Users, jangan didaftarkan ulang.`,
+              code: 'nik_exists',
+              existing_id: byNik.id,
+            },
+            409,
+          )
+        }
+      }
+
       const { data, error } = await admin.auth.admin.createUser({
         email,
         password,
         email_confirm: true,
         user_metadata: { full_name: full_name ?? '', phone: phone ?? '' },
       })
-      if (error) return json({ error: error.message }, 400)
+
+      if (error) {
+        const msg = String(error.message ?? '')
+        const isDup = /already been registered|already exists|already been used/i.test(msg)
+        if (!isDup) return json({ error: msg }, 400)
+
+        // Email dummy (nNIK@danaku.test) sudah ada. Penyebab paling sering:
+        // percobaan sebelumnya berhenti di tengah — akun auth sudah dibuat,
+        // tapi update profiles gagal (upload foto / koneksi putus). Akun itu
+        // masih yatim, jadi pakai lagi daripada bikin akun kembar.
+        const { data: prof } = await admin
+          .from('profiles')
+          .select('id, nik, full_name')
+          .eq('email', email)
+          .maybeSingle()
+
+        if (!prof) {
+          return json(
+            {
+              error: `Email ${email} sudah dipakai dan tidak punya profil. Hapus user itu di Supabase → Authentication → Users, lalu ulangi.`,
+              code: 'email_exists',
+            },
+            409,
+          )
+        }
+        // NIK di profil beda → email ini milik orang lain, jangan ditimpa.
+        if (nikKey && prof.nik && prof.nik !== nikKey) {
+          return json(
+            {
+              error: `Email ${email} sudah dipakai nasabah lain (NIK ${prof.nik}). Perbaiki NIK atau hapus akun lama.`,
+              code: 'email_exists',
+            },
+            409,
+          )
+        }
+        return json({ id: prof.id, recovered: true })
+      }
+
       return json({ id: data.user?.id })
     }
 

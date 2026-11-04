@@ -66,6 +66,7 @@ export default function NasabahBaru() {
   // --- Akun (dummy, nasabah tidak login — hanya owner/admin) ---
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [dupNik, setDupNik] = useState(false)
   const [done, setDone] = useState<string | null>(null)
 
   const domisiliLoc = parseMapsLink(domisiliLink)
@@ -343,6 +344,7 @@ export default function NasabahBaru() {
         password: dummyPassword,
         fullName: nama.trim(),
         phone: phone.trim(),
+        nik: nik.trim(),
       })
 
       const { error: e2 } = await supabase.from('profiles').update({
@@ -398,6 +400,7 @@ export default function NasabahBaru() {
       setJaminan(''); setJaminanDetail(''); setBuktiFiles([]); setBuktiPrev([])
     } catch (e) {
       setError(errMsg(e))
+      setDupNik(/sudah terdaftar|sudah dipakai/i.test(errMsg(e)))
     } finally {
       setBusy(false)
     }
@@ -412,7 +415,16 @@ export default function NasabahBaru() {
       <h1 className="text-2xl font-bold text-slate-800">➕ Daftarkan Nasabah</h1>
       <p className="-mt-2 text-sm text-slate-500">Owner daftarkan langsung. Foto tersimpan di cloud — aman dari HP hilang.</p>
 
-      {error && <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
+      {error && (
+        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div>{error}</div>
+          {dupNik && (
+            <Link to="/users" className="mt-1 inline-block font-medium text-red-800 underline">
+              → Cari di daftar Users
+            </Link>
+          )}
+        </div>
+      )}
       {done && (
         <div className="space-y-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           <div>{done}</div>

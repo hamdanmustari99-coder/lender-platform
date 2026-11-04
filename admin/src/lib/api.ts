@@ -522,6 +522,7 @@ export async function serverCreateNasabah(input: {
   password: string
   fullName: string
   phone: string
+  nik?: string
 }): Promise<string> {
   const res = await fetch(FN_URL, {
     method: 'POST',
@@ -532,6 +533,7 @@ export async function serverCreateNasabah(input: {
       password: input.password,
       full_name: input.fullName,
       phone: input.phone,
+      nik: input.nik ?? '',
     }),
   })
   if (!res.ok) await edgeErr(res)
