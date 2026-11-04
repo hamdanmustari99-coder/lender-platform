@@ -81,7 +81,7 @@ create table public.kyc_documents (
 create table public.loans (
   id              uuid primary key default gen_random_uuid(),
   user_id         uuid not null references public.profiles(id) on delete cascade,
-  amount          bigint not null check (amount between 500000 and 20000000), -- Rp500rb - Rp20jt
+  amount          bigint not null check (amount between 50000 and 20000000),  -- Rp50rb - Rp20jt
   tenor_months    int not null check (tenor_months between 1 and 52),  -- v2.0: jumlah periode (weekly s/d 52 / monthly s/d 12)
   frequency       loan_frequency not null default 'weekly',            -- v2.0: mingguan|bulanan
   interest_rate   numeric(5,2) not null default 20.00,  -- v3.0: flat 20%/periode
@@ -262,8 +262,8 @@ begin
   -- v3.0: nominal final ditentukan admin (default = amount/requested).
   -- v2.0: bunga flat per periode (15%): total = amount + 15%
   v_final := coalesce(p_amount_override, lr.amount);
-  if v_final is null or v_final < 500000 or v_final > 20000000 then
-    raise exception 'Nominal final harus Rp500rb - Rp20jt';
+  if v_final is null or v_final < 50000 or v_final > 20000000 then
+    raise exception 'Nominal final harus Rp50rb - Rp20jt';
   end if;
   if lr.frequency = 'monthly' and lr.tenor_months not in (1,3) then
     raise exception 'Untuk bulanan pilih tenor 1 atau 3 bulan';
@@ -509,8 +509,8 @@ begin
   if not public.is_admin() then
     raise exception 'Only admin can create loans';
   end if;
-  if p_amount is null or p_amount < 500000 or p_amount > 20000000 then
-    raise exception 'Nominal harus Rp500rb - Rp20jt';
+  if p_amount is null or p_amount < 50000 or p_amount > 20000000 then
+    raise exception 'Nominal harus Rp50rb - Rp20jt';
   end if;
   if p_frequency = 'monthly' and p_tenor not in (1,3) then
     raise exception 'Untuk bulanan pilih tenor 1 atau 3 bulan';

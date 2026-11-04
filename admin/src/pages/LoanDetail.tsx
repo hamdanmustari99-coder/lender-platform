@@ -222,7 +222,7 @@ export default function LoanDetail() {
                 <input
                   id="final-amount"
                   type="number"
-                  min={500000}
+                  min={50000}
                   max={20000000}
                   step={50000}
                   value={finalAmount}
@@ -240,9 +240,9 @@ export default function LoanDetail() {
                   onClick={() =>
                     void act(async () => {
                       const v = Number(finalAmount)
-                      if (!Number.isFinite(v) || v < 500000 || v > 20000000) {
+                      if (!Number.isFinite(v) || v < 50000 || v > 20000000) {
                         throw new Error(
-                          'Nominal final harus antara Rp500.000–Rp20.000.000',
+                          'Nominal final harus antara Rp50.000–Rp20.000.000',
                         )
                       }
                       await approveLoan(loan.id, Math.round(v))

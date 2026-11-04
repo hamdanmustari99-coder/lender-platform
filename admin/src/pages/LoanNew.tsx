@@ -78,8 +78,8 @@ export default function LoanNew() {
       return
     }
     const nominal = Number(amount)
-    if (!Number.isFinite(nominal) || nominal < 500000 || nominal > 20000000) {
-      setError('Nominal harus antara Rp500.000–Rp20.000.000.')
+    if (!Number.isFinite(nominal) || nominal < 50000 || nominal > 20000000) {
+      setError('Nominal harus antara Rp50.000–Rp20.000.000.')
       return
     }
     const tenorNum = Number(tenor)
@@ -171,7 +171,7 @@ export default function LoanNew() {
           <input
             id="loan-amount"
             type="number"
-            min={500000}
+            min={50000}
             max={20000000}
             step={50000}
             value={amount}
@@ -180,7 +180,7 @@ export default function LoanNew() {
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
           />
           <p className="mt-1 text-xs text-slate-400">
-            Rp500.000 – Rp20.000.000
+            Rp50.000 – Rp20.000.000
             {Number(amount) > 0 ? ` — ${fmtRp(Number(amount) || 0)}` : ''}
           </p>
         </div>

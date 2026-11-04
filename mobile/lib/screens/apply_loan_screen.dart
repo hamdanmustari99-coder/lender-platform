@@ -4,7 +4,7 @@ import '../models/models.dart';
 import '../services/supabase_service.dart';
 import '../widgets/common.dart';
 
-const int _minAmount = 500000;
+const int _minAmount = 50000;
 const int _maxAmount = 20000000;
 const double _rate = 20.0; // v3.0: bunga flat 20% per periode
 
@@ -244,7 +244,7 @@ class _ApplyLoanScreenState extends State<ApplyLoanScreen> {
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
-            children: [1000000, 3000000, 5000000, 10000000, 20000000]
+            children: [50000, 100000, 500000, 1000000, 3000000, 5000000, 10000000, 20000000]
                 .map((v) => ChoiceChip(
                       label: Text(rupiahText(v)),
                       selected: _amountRounded == v,
