@@ -7,7 +7,6 @@ const NAV = [
   { to: '/setoran', label: 'Setoran', end: false },
   { to: '/laporan', label: 'Laporan', end: false },
   { to: '/users', label: 'Users', end: false },
-  { to: '/calon', label: 'Calon Nasabah', end: false },
 ]
 
 export default function Layout() {

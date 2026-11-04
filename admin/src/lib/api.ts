@@ -126,22 +126,6 @@ export interface PendingKycProfile extends Profile {
   emergency_contacts: EmergencyContact[]
 }
 
-export interface CalonNasabah {
-  id: string
-  petugas_id: string
-  nama: string
-  nik: string
-  phone: string
-  alamat: string
-  wilayah: string
-  ktp_path: string
-  status: 'baru' | 'diproses' | 'jadi_nasabah' | 'ditolak'
-  owner_note: string
-  converted_user_id: string | null
-  created_at: string
-  petugas?: Pick<Profile, 'full_name' | 'email'> | null
-}
-
 // ---------- Query ----------
 
 export async function fetchLoans(): Promise<Loan[]> {
@@ -226,30 +210,6 @@ export async function fetchEmergencyContacts(userId: string): Promise<EmergencyC
     .order('seq', { ascending: true })
   if (error) throw error
   return (data ?? []) as EmergencyContact[]
-}
-
-/** Calon nasabah dari petugas (M6b) — beserta nama petugas penginput */
-export async function fetchCalonNasabah(): Promise<CalonNasabah[]> {
-  const { data, error } = await supabase
-    .from('calon_nasabah')
-    .select('*, petugas:profiles!calon_nasabah_petugas_id_fkey(full_name, email)')
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return (data ?? []) as CalonNasabah[]
-}
-
-/** Update status calon (diproses/ditolak) + catatan owner + link akun hasil convert */
-export async function setCalonStatus(
-  id: string,
-  status: CalonNasabah['status'],
-  ownerNote = '',
-  convertedUserId: string | null = null,
-): Promise<void> {
-  const { error } = await supabase
-    .from('calon_nasabah')
-    .update({ status, owner_note: ownerNote, converted_user_id: convertedUserId })
-    .eq('id', id)
-  if (error) throw error
 }
 
 // ==================== M7: Setoran & Laporan (admin v2.0) ====================
@@ -474,6 +434,20 @@ export async function fetchNasabahDocuments(userId: string): Promise<NasabahDocu
   return (data ?? []) as NasabahDocument[]
 }
 
+/**
+ * Hapus nasabah beserta seluruh datanya (pinjaman lunas, cicilan, dokumen,
+ * rute, notifikasi) lewat service_role di server. Ditolak kalau masih ada
+ * pinjaman aktif/menunggu, atau kalau admin menghapus akunnya sendiri.
+ */
+export async function deleteNasabah(userId: string): Promise<void> {
+  const res = await fetch(FN_URL, {
+    method: 'POST',
+    headers: await edgeHeaders(true),
+    body: JSON.stringify({ action: 'delete-nasabah', user_id: userId }),
+  })
+  if (!res.ok) await edgeErr(res)
+}
+
 export async function rejectLoan(loanId: string, reason: string): Promise<void> {
   const { error } = await supabase.rpc('reject_loan', {
     p_loan_id: loanId,
@@ -575,30 +549,6 @@ export async function resolveMapsLink(url: string): Promise<{ lat: number; lng: 
   const body = await res.json()
   if (body?.lat == null) throw new Error('Koordinat tidak ditemukan.')
   return { lat: Number(body.lat), lng: Number(body.lng) }
-}
-
-export interface ConvertCalonResult {
-  user_id: string
-  calon_id: string
-  route_assigned: boolean
-  petugas_id: string | null
-  email: string
-}
-
-/** v13: convert calon → akun nasabah dalam satu klik (akun + profil + rute). */
-export async function convertCalon(
-  calonId: string,
-  assignRoute = true,
-): Promise<ConvertCalonResult> {
-  const res = await fetch(FN_URL, {
-    method: 'POST',
-    headers: await edgeHeaders(true),
-    body: JSON.stringify({ action: 'convert-calon', calon_id: calonId, assign_route: assignRoute }),
-  })
-  if (!res.ok) await edgeErr(res)
-  const body = await res.json()
-  if (!body?.user_id) throw new Error('Convert gagal: akun tidak terbentuk.')
-  return body as ConvertCalonResult
 }
 
 export interface R2File {

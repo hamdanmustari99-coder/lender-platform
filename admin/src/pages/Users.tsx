@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { fetchNasabahTelatFlag, fetchProfiles, subscribeToTables } from '../lib/api'
+import { deleteNasabah, fetchNasabahTelatFlag, fetchProfiles, subscribeToTables } from '../lib/api'
 import type { Profile } from '../lib/api'
 import { fmtDate, KYC_STATUS_CLASS, KYC_STATUS_LABEL, errMsg } from '../lib/format'
 
@@ -10,6 +10,7 @@ export default function Users() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [telatMap, setTelatMap] = useState<Map<string, boolean>>(new Map())
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -52,6 +53,27 @@ export default function Users() {
     )
   }, [profiles, search])
 
+  const doDelete = async (p: Profile) => {
+    const nama = p.full_name || '(tanpa nama)'
+    const ok = window.confirm(
+      `Hapus nasabah ${nama}?\n\n` +
+        'Semua datanya ikut terhapus: profil, pinjaman yang sudah lunas, cicilan, ' +
+        'foto KTP/foto/jaminan, kontak darurat, rute, dan notifikasi.\n\n' +
+        'Tindakan ini TIDAK bisa dibatalkan.',
+    )
+    if (!ok) return
+    setDeleting(p.id)
+    setError(null)
+    try {
+      await deleteNasabah(p.id)
+      await load()
+    } catch (e) {
+      setError(errMsg(e))
+    } finally {
+      setDeleting(null)
+    }
+  }
+
   if (loading) return <div className="text-sm text-slate-500">Memuat data…</div>
 
   return (
@@ -88,8 +110,8 @@ export default function Users() {
               <th className="px-4 py-3">Telat</th>
               <th className="px-4 py-3">Domisili</th>
               <th className="px-4 py-3">Terdaftar</th>
-              <th className="px-4 py-3" />
-            </tr>
+              <th className="px-4 py-3 text-right">Aksi</th>
+              </tr>
           </thead>
           <tbody>
             {filtered.map((p) => (
@@ -138,12 +160,22 @@ export default function Users() {
                   {fmtDate(p.created_at)}
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <Link
-                    to={`/users/${p.id}`}
-                    className="text-xs font-medium text-emerald-600 hover:underline"
-                  >
-                    Detail →
-                  </Link>
+                  <div className="flex items-center justify-end gap-2">
+                    <Link
+                      to={`/users/${p.id}`}
+                      className="text-xs font-medium text-emerald-600 hover:underline"
+                    >
+                      Detail →
+                    </Link>
+                    <button
+                      onClick={() => void doDelete(p)}
+                      disabled={deleting === p.id}
+                      title={`Hapus ${p.full_name || 'nasabah'}`}
+                      className="rounded-md border border-red-200 px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {deleting === p.id ? '…' : 'Hapus'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
