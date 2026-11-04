@@ -2,9 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { deleteNasabah, fetchNasabahTelatFlag, fetchProfiles, subscribeToTables } from '../lib/api'
 import type { Profile } from '../lib/api'
+import { useConfirm } from '../components/ConfirmDialog'
 import { fmtDate, KYC_STATUS_CLASS, KYC_STATUS_LABEL, errMsg } from '../lib/format'
 
 export default function Users() {
+  const confirm = useConfirm()
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -55,12 +57,15 @@ export default function Users() {
 
   const doDelete = async (p: Profile) => {
     const nama = p.full_name || '(tanpa nama)'
-    const ok = window.confirm(
-      `Hapus nasabah ${nama}?\n\n` +
+    const ok = await confirm({
+      title: `Hapus nasabah ${nama}?`,
+      message:
         'Semua datanya ikut terhapus: profil, pinjaman yang sudah lunas, cicilan, ' +
         'foto KTP/foto/jaminan, kontak darurat, rute, dan notifikasi.\n\n' +
         'Tindakan ini TIDAK bisa dibatalkan.',
-    )
+      confirmText: 'Hapus',
+      tone: 'danger',
+    })
     if (!ok) return
     setDeleting(p.id)
     setError(null)

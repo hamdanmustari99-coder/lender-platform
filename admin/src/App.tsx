@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { supabase } from './lib/supabase'
 import { fetchMyProfile } from './lib/api'
 import Layout from './components/Layout.tsx'
+import { ConfirmProvider } from './components/ConfirmDialog.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Loans from './pages/Loans.tsx'
@@ -85,21 +86,23 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="loans" element={<Loans />} />
-          <Route path="loans/new" element={<LoanNew />} />
-          <Route path="loans/:id" element={<LoanDetail />} />
-          <Route path="setoran" element={<Setoran />} />
-          <Route path="laporan" element={<Laporan />} />
-          <Route path="users" element={<Users />} />
-          <Route path="users/new" element={<NasabahBaru />} />
-          <Route path="users/:id" element={<UserDetail />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <ConfirmProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route element={<Layout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="loans" element={<Loans />} />
+            <Route path="loans/new" element={<LoanNew />} />
+            <Route path="loans/:id" element={<LoanDetail />} />
+            <Route path="setoran" element={<Setoran />} />
+            <Route path="laporan" element={<Laporan />} />
+            <Route path="users" element={<Users />} />
+            <Route path="users/new" element={<NasabahBaru />} />
+            <Route path="users/:id" element={<UserDetail />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </ConfirmProvider>
   )
 }
