@@ -271,7 +271,7 @@ class _LoginScreenState extends State<LoginScreen>
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'Bunga flat 10%/tahun • Tenor 1-12 bulan\nRp500.000 - Rp20.000.000',
+                    'Bunga flat 10%/tahun • Tenor 1-12 bulan\nRp50.000 - Rp20.000.000',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: Theme.of(context).colorScheme.onSurfaceVariant,

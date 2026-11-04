@@ -103,7 +103,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ?.copyWith(fontWeight: FontWeight.w700)),
             const SizedBox(height: 4),
             Text(
-              'Butuh dana cepat? Ajukan pinjaman mulai Rp500 ribu.',
+              'Butuh dana cepat? Ajukan pinjaman mulai Rp50 ribu.',
               style: Theme.of(context)
                   .textTheme
                   .bodyMedium
