@@ -264,8 +264,32 @@ export interface NasabahRow {
   office_lng?: number | null
   /** Jumlah pinjaman berjalan (disbursed/active) */
   pinjaman_aktif?: number
-  /** Agunan yang ditahan, dari pinjaman berjalan (M24) */
-  jaminan?: { tipe: string; detail: string; status: string }[]
+  /** Rincian pinjaman berjalan + nominal + agunannya (M25) */
+  pinjaman_detail?: PinjamanRingkas[]
+  /** Total modal yang sedang keluar ke nasabah ini */
+  total_dipinjam?: number
+  /** Total yang harus ditagih (pokok + bunga) */
+  total_tagihan?: number
+  /** Sisa yang belum tertagih */
+  total_sisa?: number
+  /** Total yang sudah masuk dari nasabah ini */
+  total_dibayar?: number
+}
+
+/** Ringkasan satu pinjaman berjalan (M25) */
+export interface PinjamanRingkas {
+  id: string
+  pokok: number
+  tagihan: number
+  sisa: number
+  dibayar: number
+  frekuensi: string
+  tenor: number
+  tanggal: string
+  status: string
+  /** Jenis agunan ("Tidak dicatat" kalau kosong) */
+  tipe: string
+  detail: string
 }
 
 export interface ListNasabahResult {

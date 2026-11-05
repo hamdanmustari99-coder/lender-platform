@@ -54,6 +54,25 @@ function waHref(phone: string): string {
   return `https://wa.me/${intl}`
 }
 
+/** Format rupiah ringkas: 1.500.000 → "Rp 1,5 jt" (kartu sempit) */
+function rupiah(n: number): string {
+  const v = Math.round(n)
+  if (v === 0) return 'Rp 0'
+  if (Math.abs(v) >= 1_000_000) {
+    const jt = v / 1_000_000
+    const s = jt >= 10 ? jt.toFixed(0) : jt.toFixed(1).replace(/\.0$/, '')
+    return `Rp ${s.replace('.', ',')} jt`
+  }
+  if (Math.abs(v) >= 1_000) return `Rp ${Math.round(v / 1_000)} rb`
+  return `Rp ${v}`
+}
+
+/** Label frekuensi cicilan */
+const FREQ_LABEL: Record<string, string> = {
+  weekly: 'Mingguan',
+  monthly: 'Bulanan',
+}
+
 /** Kartu satu nasabah */
 function NasabahCard({
   row,
@@ -66,9 +85,13 @@ function NasabahCard({
 }) {
   const mapsRumah = mapsLink(row.home_lat, row.home_lng)
   const mapsKantor = mapsLink(row.office_lat, row.office_lng)
-  const jaminan = row.jaminan ?? []
+  const pinjaman = row.pinjaman_detail ?? []
   const aktif = row.pinjaman_aktif ?? 0
   const status = row.status_keandalan ?? 'LANCAR'
+  const dipinjam = row.total_dipinjam ?? 0
+  const tagihan = row.total_tagihan ?? 0
+  const sisa = row.total_sisa ?? 0
+  const dibayar = row.total_dibayar ?? 0
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm hover:shadow-md hover:border-emerald-200 transition-all overflow-hidden flex flex-col">
@@ -125,6 +148,34 @@ function NasabahCard({
         <span className="font-semibold text-slate-700">{row.phone || '—'}</span>
       </div>
 
+      {/* ---------- Nominal pinjaman ke owner (M25) ---------- */}
+      {aktif > 0 && (
+        <div className="mx-5 mb-4 rounded-2xl bg-slate-50 border border-slate-200 overflow-hidden">
+          <div className="px-4 py-2.5 bg-admin-dark text-white">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-300">
+              Pinjaman ke Owner
+            </p>
+            <p className="text-lg font-black tracking-tight leading-tight">{rupiah(dipinjam)}</p>
+          </div>
+          <div className="grid grid-cols-3 divide-x divide-slate-200 border-t border-slate-200">
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Tagihan</p>
+              <p className="text-xs font-bold text-slate-800">{rupiah(tagihan)}</p>
+            </div>
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Sisa</p>
+              <p className={`text-xs font-bold ${sisa > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                {rupiah(sisa)}
+              </p>
+            </div>
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">Dibayar</p>
+              <p className="text-xs font-bold text-emerald-600">{rupiah(dibayar)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ---------- Alamat rumah & kantor ---------- */}
       <div className="px-5 pb-4 space-y-3 border-t border-slate-100 pt-4 flex-1">
         <div>
@@ -165,25 +216,40 @@ function NasabahCard({
           )}
         </div>
 
+        {/* ---------- Rincian pinjaman + agunan (M25) ---------- */}
         <div>
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">
-            Agunan / Jaminan Ditahan
+            Rincian Pinjaman &amp; Agunan
           </p>
-          {jaminan.length === 0 ? (
-            <p className="text-xs text-slate-400 italic">Tidak ada agunan</p>
+          {pinjaman.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">Tidak ada pinjaman berjalan</p>
           ) : (
-            <ul className="space-y-1.5">
-              {jaminan.map((j, i) => (
+            <ul className="space-y-2">
+              {pinjaman.map((p) => (
                 <li
-                  key={i}
-                  className="flex items-start gap-2 text-xs bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2"
+                  key={p.id}
+                  className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-2"
                 >
-                  <span className="shrink-0">🔒</span>
-                  <div className="min-w-0">
-                    <p className="font-bold text-slate-800 capitalize">{j.tipe}</p>
-                    {j.detail && (
-                      <p className="text-[11px] text-slate-500 leading-snug">{j.detail}</p>
-                    )}
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="font-bold text-slate-800">{rupiah(p.pokok)}</span>
+                    <span className="text-[10px] font-bold text-slate-500 shrink-0">
+                      {FREQ_LABEL[p.frekuensi] ?? p.frekuensi} × {p.tenor}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2 mt-0.5">
+                    <span className="text-[11px] text-slate-500">
+                      Sisa <span className={`font-bold ${p.sisa > 0 ? 'text-red-600' : 'text-emerald-600'}`}>{rupiah(p.sisa)}</span>
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      lunas {rupiah(p.dibayar)}
+                    </span>
+                  </div>
+                  <div className="flex items-start gap-1.5 mt-1.5 pt-1.5 border-t border-slate-200">
+                    <span className="shrink-0">🔒</span>
+                    <p className="text-[11px] text-slate-600 leading-snug capitalize">
+                      {p.tipe}
+                      {p.detail && <span className="text-slate-400"> — {p.detail}</span>}
+                    </p>
                   </div>
                 </li>
               ))}
