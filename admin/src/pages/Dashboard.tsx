@@ -26,8 +26,8 @@ import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_COLOR, LOAN_STATUS_LABEL
 
 interface NunggakItem {
   loan: Loan
-  borrowerName: string
-  borrowerEmail: string
+  nasabahNama: string
+  nasabahEmail: string
   telat: Installment[]
   totalTunggakan: number
 }
@@ -36,7 +36,7 @@ export default function Dashboard() {
   const [loans, setLoans] = useState<Loan[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
   const [setoranHariIni, setSetoranHariIni] = useState(0)
-  const [petugasAktif, setPetugasAktif] = useState(0)
+  const [pencatatAktif, setPencatatAktif] = useState(0)
   const [nunggak, setNunggak] = useState<NunggakItem[]>([])
   const [paymentsByNasabah, setPaymentsByNasabah] = useState<Map<string, Payment[]>>(new Map())
   const [openNunggak, setOpenNunggak] = useState<string | null>(null)
@@ -51,7 +51,7 @@ export default function Dashboard() {
       const today = new Date().toISOString().slice(0, 10)
       const hariIni = aggregateSetoran(pay).filter((r) => r.tanggal === today)
       setSetoranHariIni(hariIni.reduce((s, r) => s + r.total, 0))
-      setPetugasAktif(new Set(hariIni.map((r) => r.petugasId)).size)
+      setPencatatAktif(new Set(hariIni.map((r) => r.pencatatId)).size)
 
       // Nunggak: cicilan unpaid lewat due_date.
       // Cicilan diambil sekali untuk semua pinjaman (bukan N+1 per pinjaman).
@@ -68,9 +68,9 @@ export default function Dashboard() {
         if (telat.length > 0) {
           items.push({
             loan,
-            borrowerName:
+            nasabahNama:
               loan.profiles?.full_name || loan.profiles?.email || loan.user_id.slice(0, 8),
-            borrowerEmail: loan.profiles?.email || '',
+            nasabahEmail: loan.profiles?.email || '',
             telat: telat.sort((a, b) => a.due_date.localeCompare(b.due_date)),
             totalTunggakan: telat.reduce((s, i) => s + (i.amount - (i.amount_paid ?? 0)), 0),
           })
@@ -103,7 +103,6 @@ export default function Dashboard() {
 
   const stats = useMemo(() => {
     const nasabah = profiles.filter((p) => p.role === 'nasabah').length
-    const petugas = profiles.filter((p) => p.role === 'petugas').length
     const kycPending = profiles.filter((p) => p.kyc_status === 'pending').length
     const activeLoans = loans.filter(
       (l) => l.status === 'disbursed' || l.status === 'active',
@@ -111,7 +110,6 @@ export default function Dashboard() {
     const outstanding = activeLoans.reduce((s, l) => s + l.amount, 0)
     return {
       nasabah,
-      petugas,
       kycPending,
       activeLoans: activeLoans.length,
       outstanding,
@@ -172,7 +170,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <div className="text-xs text-slate-500">
-            Total Nasabah <span className="text-slate-400">({stats.petugas} petugas)</span>
+            Total Nasabah
           </div>
           <div className="mt-1 text-2xl font-bold text-slate-800">
             {stats.nasabah}
@@ -204,7 +202,7 @@ export default function Dashboard() {
           <div className="flex items-center justify-between">
             <div>
               <div className="text-xs text-emerald-200">
-                Setoran hari ini • {petugasAktif} petugas
+                Setoran hari ini • {pencatatAktif} admin
               </div>
               <div className="mt-1 text-2xl font-bold">{fmtRp(setoranHariIni)}</div>
             </div>
@@ -238,7 +236,7 @@ export default function Dashboard() {
                   >
                     <div>
                       <div className="text-sm font-semibold text-slate-800">
-                        {n.borrowerName}
+                        {n.nasabahNama}
                       </div>
                       <div className="text-xs text-slate-500">
                         {n.telat.length} cicilan telat • tunggakan{' '}
@@ -267,7 +265,7 @@ export default function Dashboard() {
                         </div>
                       ))}
                       <div className="mb-2 mt-3 text-xs font-semibold text-slate-600">
-                        Riwayat bayar {n.borrowerName.split(' ')[0]} ({riwayat.length} terakhir):
+                        Riwayat bayar {n.nasabahNama.split(' ')[0]} ({riwayat.length} terakhir):
                       </div>
                       {riwayat.length === 0 ? (
                         <div className="text-xs text-slate-400">
@@ -277,7 +275,7 @@ export default function Dashboard() {
                         riwayat.map((pm) => (
                           <div key={pm.id} className="flex justify-between py-0.5 text-xs">
                             <span className="text-slate-600">
-                              {fmtDate(pm.paid_at)} • via {pm.petugas?.full_name || '—'}
+                              {fmtDate(pm.paid_at)} • oleh {pm.dicatat?.full_name || '—'}
                               {pm.note ? ` • “${pm.note}”` : ''}
                             </span>
                             <span className="font-medium text-emerald-700">
@@ -364,7 +362,7 @@ export default function Dashboard() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-              <th className="py-2">Borrower</th>
+              <th className="py-2">Nasabah</th>
               <th className="py-2">Jumlah</th>
               <th className="py-2">Tenor</th>
               <th className="py-2">Status</th>

@@ -102,7 +102,7 @@ export default function Loans() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-              <th className="px-4 py-3">Borrower</th>
+              <th className="px-4 py-3">Nasabah</th>
               <th className="px-4 py-3">Jumlah</th>
               <th className="px-4 py-3">Frekuensi</th>
               <th className="px-4 py-3">Tenor</th>

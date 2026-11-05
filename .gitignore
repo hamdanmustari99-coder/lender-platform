@@ -15,6 +15,7 @@ mobile/android/.gradle/
 mobile/.dart_tool/
 mobile/.flutter-plugins*
 *.iml
+.idea/
 
 # OS
 .DS_Store

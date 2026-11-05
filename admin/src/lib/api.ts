@@ -15,7 +15,7 @@ export type InstallmentStatus = 'unpaid' | 'paid' | 'overdue'
 
 export interface Profile {
   id: string
-  role: 'admin' | 'petugas' | 'nasabah'
+  role: 'admin' | 'nasabah'
   email: string
   full_name: string
   // --- Data KTP (model koperasi) ---
@@ -69,7 +69,7 @@ export interface Loan {
   interest_rate: number
   monthly_payment: number
   late_fee: number
-  collected_by: string | null
+  dicatat_oleh: string | null
   purpose: string | null
   status: LoanStatus
   reject_reason: string | null
@@ -108,7 +108,7 @@ export interface Installment {
   due_date: string
   amount: number
   amount_paid: number
-  paid_by: string | null
+  dicatat_oleh: string | null
   status: InstallmentStatus
   paid_at: string | null
 }
@@ -255,7 +255,6 @@ export interface NasabahRow {
   kyc_status: string
   foto_path: string | null
   created_at: string
-  petugas_id: string | null
   /** Pernah punya cicilan lewat jatuh tempo (badge telat) */
   telat: boolean
 }
@@ -299,8 +298,8 @@ export async function listNasabah(params: {
 
 export interface SetoranHarianRow {
   tanggal: string
-  petugasId: string | null
-  petugasNama: string
+  pencatatId: string | null
+  pencatatNama: string
   total: number
   jumlah: number
 }
@@ -313,7 +312,7 @@ export interface SetoranHarianResult {
 }
 
 /**
- * Setoran harian diagregasi Postgres per tanggal WIB + petugas, ber-paginasi.
+ * Setoran harian diagregasi Postgres per tanggal WIB + pencatat, ber-paginasi.
  *
  * Versi lama menarik 2000 payment terbaru lalu agregasi di browser, dan memakai
  * paid_at.slice(0,10) = tanggal UTC (setoran malam kecatat hari berikutnya).
@@ -351,7 +350,7 @@ export async function fetchProfile(id: string): Promise<Profile | null> {
   return (data as Profile) ?? null
 }
 
-/** Profile borrower dengan kyc_status=pending beserta dokumen & kontak daruratnya */
+/** Profile nasabah dengan kyc_status=pending beserta dokumen & kontak daruratnya */
 export async function fetchPendingKyc(): Promise<PendingKycProfile[]> {
   const { data, error } = await supabase
     .from('profiles')
@@ -364,7 +363,7 @@ export async function fetchPendingKyc(): Promise<PendingKycProfile[]> {
   return (data ?? []) as PendingKycProfile[]
 }
 
-/** Kontak darurat milik seorang borrower */
+/** Kontak darurat milik seorang nasabah */
 export async function fetchEmergencyContacts(userId: string): Promise<EmergencyContact[]> {
   const { data, error } = await supabase
     .from('emergency_contacts')
@@ -382,12 +381,12 @@ export interface Payment {
   loan_id: string
   installment_id: string | null
   nasabah_id: string
-  petugas_id: string | null
+  dicatat_oleh: string | null
   amount: number
   paid_at: string
   note: string
   created_at: string
-  petugas?: Pick<Profile, 'full_name' | 'email'> | null
+  dicatat?: Pick<Profile, 'full_name' | 'email'> | null
   nasabah?: Pick<Profile, 'full_name' | 'email'> | null
 }
 
@@ -396,7 +395,7 @@ export async function fetchPayments(limit = 2000): Promise<Payment[]> {
   const { data, error } = await supabase
     .from('payments')
     .select(
-      '*, petugas:profiles!payments_petugas_id_fkey(full_name, email), nasabah:profiles!payments_nasabah_id_fkey(full_name, email)',
+      '*, dicatat:profiles!payments_dicatat_oleh_fkey(full_name, email), nasabah:profiles!payments_nasabah_id_fkey(full_name, email)',
     )
     .order('paid_at', { ascending: false })
     .limit(limit)
@@ -413,19 +412,19 @@ export async function fetchPayments(limit = 2000): Promise<Payment[]> {
  */
 export async function fetchPaymentsForDay(
   tanggal: string,
-  petugasId: string | null,
+  pencatatId: string | null,
 ): Promise<Payment[]> {
   let q = supabase
     .from('payments')
     .select(
-      '*, petugas:profiles!payments_petugas_id_fkey(full_name, email), nasabah:profiles!payments_nasabah_id_fkey(full_name, email)',
+      '*, dicatat:profiles!payments_dicatat_oleh_fkey(full_name, email), nasabah:profiles!payments_nasabah_id_fkey(full_name, email)',
     )
     .order('paid_at', { ascending: true })
   // rentang WIB hari itu, dikirim sebagai UTC
   const dari = `${tanggal}T00:00:00+07:00`
   const sampai = `${tanggal}T23:59:59.999+07:00`
   q = q.gte('paid_at', dari).lte('paid_at', sampai)
-  if (petugasId) q = q.eq('petugas_id', petugasId)
+  if (pencatatId) q = q.eq('dicatat_oleh', pencatatId)
   const { data, error } = await q
   if (error) throw error
   return (data ?? []) as Payment[]
@@ -433,22 +432,22 @@ export async function fetchPaymentsForDay(
 
 export interface SetoranHarian {
   tanggal: string // yyyy-mm-dd
-  petugasId: string
-  petugasNama: string
+  pencatatId: string
+  pencatatNama: string
   total: number
   count: number
 }
 
-/** Agregasi setoran per petugas per hari (client-side, data MVP kecil). */
+/** Agregasi setoran per admin per hari (client-side, data MVP kecil). */
 export function aggregateSetoran(payments: Payment[]): SetoranHarian[] {
   const m = new Map<string, SetoranHarian>()
   for (const p of payments) {
     const tanggal = p.paid_at.slice(0, 10)
-    const key = `${tanggal}|${p.petugas_id ?? '-'}`
+    const key = `${tanggal}|${p.dicatat_oleh ?? '-'}`
     const cur = m.get(key) ?? {
       tanggal,
-      petugasId: p.petugas_id ?? '-',
-      petugasNama: p.petugas?.full_name || p.petugas?.email || '—',
+      pencatatId: p.dicatat_oleh ?? '-',
+      pencatatNama: p.dicatat?.full_name || p.dicatat?.email || '—',
       total: 0,
       count: 0,
     }
@@ -458,7 +457,7 @@ export function aggregateSetoran(payments: Payment[]): SetoranHarian[] {
   }
   return [...m.values()].sort((a, b) =>
     a.tanggal === b.tanggal
-      ? a.petugasNama.localeCompare(b.petugasNama)
+      ? a.pencatatNama.localeCompare(b.pencatatNama)
       : b.tanggal.localeCompare(a.tanggal),
   )
 }
@@ -653,7 +652,7 @@ export async function payInstallment(installmentId: string): Promise<void> {
   if (error) throw error
 }
 
-/** v3.1: catat bayar tunai (penuh/parsial + auto-apply). Admin & petugas. */
+/** v3.1: catat bayar tunai (penuh/parsial + auto-apply). Admin saja. */
 export async function recordCashPayment(
   installmentId: string,
   amount: number,

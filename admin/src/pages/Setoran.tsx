@@ -12,7 +12,7 @@ import { errMsg, fmtDate, fmtRp } from '../lib/format'
 const PAGE_SIZE = 50
 
 /**
- * M7 FR-A6b — Rekonsiliasi setoran: agregasi tunai tercatat per petugas per hari
+ * M7 FR-A6b — Rekonsiliasi setoran: agregasi tunai tercatat per admin per hari
  * + rincian transaksi. Owner mencocokkan dengan uang fisik yang disetor.
  *
  * Agregasi dilakukan Postgres (RPC setoran_harian, tanggal WIB). Rincian
@@ -59,7 +59,7 @@ export default function Setoran() {
   }, [load, page, filter])
 
   const toggleDay = async (r: SetoranHarianRow) => {
-    const key = `${r.tanggal}|${r.petugasId}`
+    const key = `${r.tanggal}|${r.pencatatId}`
     if (openDay === key) {
       setOpenDay(null)
       setDetail([])
@@ -68,7 +68,7 @@ export default function Setoran() {
     setOpenDay(key)
     setDetailLoading(true)
     try {
-      setDetail(await fetchPaymentsForDay(r.tanggal, r.petugasId))
+      setDetail(await fetchPaymentsForDay(r.tanggal, r.pencatatId))
     } catch (e) {
       setActionErr(errMsg(e))
       setDetail([])
@@ -108,8 +108,8 @@ export default function Setoran() {
       setVoidCorrect('')
       await load(page, filter)
       // segarkan rincian yang sedang terbuka
-      const cur = rows.find((r) => `${r.tanggal}|${r.petugasId}` === openDay)
-      if (cur) setDetail(await fetchPaymentsForDay(cur.tanggal, cur.petugasId))
+      const cur = rows.find((r) => `${r.tanggal}|${r.pencatatId}` === openDay)
+      if (cur) setDetail(await fetchPaymentsForDay(cur.tanggal, cur.pencatatId))
     } catch (e) {
       setActionErr(errMsg(e))
     } finally {
@@ -121,9 +121,9 @@ export default function Setoran() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-slate-800">Setoran Petugas</h1>
+      <h1 className="text-2xl font-bold text-slate-800">Setoran Harian</h1>
       <p className="-mt-2 text-sm text-slate-500">
-        Tunai tercatat per pencatat per hari (petugas lapangan / admin).
+        Tunai tercatat per admin per hari.
         Cocokkan dengan uang fisik — kalau beda, tanyakan selisihnya. 🤝
       </p>
 
@@ -182,13 +182,13 @@ export default function Setoran() {
             </thead>
             <tbody>
               {rows.map((r) => {
-                const key = `${r.tanggal}|${r.petugasId}`
+                const key = `${r.tanggal}|${r.pencatatId}`
                 const open = openDay === key
                 return (
                   <>
                     <tr key={key} className="border-b border-slate-100">
                       <td className="px-4 py-3 text-slate-700">{fmtDate(r.tanggal)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800">{r.petugasNama}</td>
+                      <td className="px-4 py-3 font-medium text-slate-800">{r.pencatatNama}</td>
                       <td className="px-4 py-3 text-slate-600">{r.jumlah}x</td>
                       <td className="px-4 py-3 font-bold text-emerald-700">{fmtRp(r.total)}</td>
                       <td className="px-4 py-3 text-right">

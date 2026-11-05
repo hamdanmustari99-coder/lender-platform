@@ -1,23 +1,23 @@
 # Danaku — Bank Keliling Platform
 
-Platform pinjaman mikro dengan penagihan door-to-door: **mobile app (Flutter)** + **admin web (React+TS+Vite)** + **Supabase** (Postgres + Auth + Storage + Realtime) sebagai backend.
+Platform pinjaman mikro dengan penagihan door-to-door: **admin web (React+TS+Vite)** + **Supabase** (Postgres + Auth + Storage + Realtime) sebagai backend.
 
-> **Dokumen acuan:** `PRD.md` (root) — v3.1, 5 Nov 2026.
+> **Dokumen acuan:** `PRD.md` (root) — v4.0, 5 Nov 2026.
 
 ```
 lender-platform/
-├── mobile/     → Flutter app: KYC, ajukan pinjaman, cicilan, notifikasi, rute tagihan
 ├── admin/      → React+TS+Vite: dashboard, approval, verifikasi KYC, users, setoran, laporan
 └── supabase/
     ├── schema.sql                 → skema DB + RLS + RPC (jalankan sekali di SQL Editor)
-    ├── migrations/                → migrasi bertahap (M14–M20); jalankan via `supabase db push`
+    ├── migrations/                → migrasi bertahap (M14–M22); jalankan via `supabase db push`
     └── functions/danaku-api/      → Edge Function: buat/hapus akun nasabah (service_role)
 ```
 
 ## Ringkasan produk
 
-3 peran: **admin/owner** (web), **petugas lapangan** (mobile), **nasabah** (mobile).
-Pembayaran = **tunai di lapangan** (tanpa payment gateway — sesuai realita bank keliling).
+**Satu peran pengguna: admin/owner.** Aplikasi hanya dipakai admin/owner dari web — tidak ada mobile app dan tidak ada akun petugas (M21). `role='nasabah'` tetap ada di DB semata sebagai penanda **pemilik data pinjaman**, bukan sebagai pengguna yang login.
+
+Pembayaran = **tunai di lapangan** (tanpa payment gateway — sesuai realita bank keliling), dicatat admin saat kunjungan.
 
 - **Bunga:** flat **20% per periode pinjaman** (mingguan atau bulanan).
 - **Plafon:** **Rp50.000 – Rp20.000.000** (revisi M17).
@@ -68,11 +68,9 @@ VITE_SUPABASE_ANON_KEY=eyJ...anon-key
 SUPABASE_SERVICE_ROLE=sb_secret...service-role-key
 ```
 
-**Mobile** — build dengan dart-define (atau edit default di `mobile/lib/config.dart`):
-```bash
-flutter run \
-  --dart-define=SUPABASE_URL=https://YOUR-PROJECT.supabase.co \
-  --dart-define=SUPABASE_ANON_KEY=eyJ...anon-key
+**Edge Function** — edit `admin/server/.env` (dipakai `supabase/functions/danaku-api`):
+```
+SUPABASE_SERVICE_ROLE=sb_secret...service-role-key
 ```
 
 ## Menjalankan
@@ -81,9 +79,6 @@ flutter run \
 # Admin web (http://localhost:5173)
 cd admin && npm install && npm run dev
 
-# Mobile (emulator / device / -d windows)
-cd mobile && flutter pub get && flutter run --dart-define=...
-
 # Deploy edge function
 supabase functions deploy danaku-api --project-ref <project-ref>
 ```
@@ -91,14 +86,15 @@ supabase functions deploy danaku-api --project-ref <project-ref>
 ## Alur bisnis
 
 ```
-Nasabah: daftar (petugas / admin) → isi KYC full KTP + kontak darurat
-        → [owner verifikasi] → ajukan pinjaman (plafon, frekuensi, tenor, jaminan)
-        → owner approve + tetapkan nominal final → jadwal auto-generate per frekuensi
-        → PETUGAS keliling: input bayar tunai per kunjungan (parsial/penuh, auto-apply)
-        → nunggak? status overdue otomatis tiap 00:00 WIB (pg_cron) + notifikasi
-        → semua lunas → completed
+Admin daftar nasabah (KTP + foto + lokasi + kontak darurat)
+      → admin verifikasi KYC
+      → admin buat pinjaman (plafon, frekuensi, tenor, jaminan)
+      → admin approve + tetapkan nominal final → jadwal auto-generate per frekuensi
+      → admin catat bayar tunai per kunjungan (parsial/penuh, auto-apply)
+      → nunggak? status overdue otomatis tiap 00:00 WIB (pg_cron) + notifikasi
+      → semua lunas → completed
 
-Setoran: petugas catat tunai → owner rekonsiliasi per hari (agregasi WIB)
+Setoran: admin catat tunai → owner rekonsiliasi per hari (agregasi WIB)
 Koreksi: salah input → void_payment / void_and_repay (reversal beraudit, alasan wajib)
 ```
 
@@ -115,10 +111,10 @@ Zona waktu: semua perhitungan tanggal memakai **`Asia/Jakarta`** (server Supabas
 
 ## Catatan keamanan
 
-- RLS aktif di semua tabel; nasabah cuma lihat data miliknya, petugas cuma nasabah dalam rutenya.
+- RLS aktif di semua tabel; pemilik data cuma lihat data miliknya, semua operasi tulis lewat `is_admin()`.
 - Tidak ada policy INSERT di `profiles` — profile dibuat trigger, jadi tidak bisa self-insert `role='admin'`.
-- Trigger guard: nasabah tidak bisa ubah `role`/`kyc_status` sendiri, dan tidak bisa set `interest_rate`/`status`/`monthly_payment` sendiri saat insert loan.
-- RPC sensitif (`approve_loan`, `reject_loan`, `record_cash_payment`, `void_payment`, `laporan_ringkasan`, `list_nasabah`, `setoran_harian`) cek `is_admin()` / `is_petugas()` (security definer).
+- Trigger guard: pemilik data tidak bisa ubah `role`/`kyc_status` sendiri, dan tidak bisa set `interest_rate`/`status`/`monthly_payment` sendiri saat insert loan.
+- RPC sensitif (`approve_loan`, `reject_loan`, `record_cash_payment`, `void_payment`, `laporan_ringkasan`, `list_nasabah`, `setoran_harian`) cek `is_admin()` (security definer).
 - `service_role` **hanya** di Edge Function, tidak pernah di client.
 - Bucket KYC private; path di-scopes per-user `{uid}/...`, dibaca via signed URL.
 - Admin web: **nol dialog bawaan browser** (`window.confirm/prompt/alert`) — semua konfirmasi pakai modal React.
@@ -128,10 +124,4 @@ Zona waktu: semua perhitungan tanggal memakai **`Asia/Jakarta`** (server Supabas
 ```bash
 # Admin web
 cd admin && npm run build
-
-# Mobile (debug)
-cd mobile && flutter build apk --debug
 ```
-
-Toolchain mobile final: Gradle 8.14.3 + AGP 8.11.1 + Kotlin 2.2.20 + JDK 17.
-Catatan: versi Kotlin project (2.2.20) akan segera tidak didukung Flutter — naikkan ke ≥ 2.3.20 saat upgrade Flutter.

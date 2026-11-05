@@ -9,7 +9,7 @@ import {
   subscribeToTables,
 } from '../lib/api'
 import type { Installment, Loan, NasabahDocument, Profile } from '../lib/api'
-import BorrowerEmergencyContacts from '../components/EmergencyContacts'
+import EmergencyContacts from '../components/EmergencyContacts'
 import { fmtDate, fmtRp, KYC_STATUS_CLASS, KYC_STATUS_LABEL, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
 /** Cicilan telat: belum lunas & due_date < hari ini, atau paid_at > due_date. */
@@ -227,10 +227,9 @@ export default function UserDetail() {
             <Row label="Status Kawin" value={profile.status_kawin || '—'} />
             <Row label="Pekerjaan" value={profile.pekerjaan || '—'} />
             <Row label="Kewarganegaraan" value={profile.kewarganegaraan || '—'} />
-            <Row label="Role" value={profile.role} />
             <Row label="Terdaftar" value={fmtDate(profile.created_at)} />
           </dl>
-          {profile.id && <BorrowerEmergencyContacts userId={profile.id} />}
+          {profile.id && <EmergencyContacts userId={profile.id} />}
           <div className="mt-3 border-t border-slate-100 pt-3">
             <span className={`rounded-full px-2 py-0.5 text-xs ${KYC_STATUS_CLASS[profile.kyc_status]}`}>
               KYC: {KYC_STATUS_LABEL[profile.kyc_status]}

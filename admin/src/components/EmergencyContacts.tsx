@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { fetchEmergencyContacts } from '../lib/api'
 import type { EmergencyContact } from '../lib/api'
 
-/** Blok tampilan kontak darurat borrower (dipakai di LoanDetail & UserDetail) */
-export default function BorrowerEmergencyContacts({ userId }: { userId: string }) {
+/** Blok tampilan kontak darurat nasabah (dipakai di LoanDetail & UserDetail) */
+export default function EmergencyContacts({ userId }: { userId: string }) {
   const [contacts, setContacts] = useState<EmergencyContact[]>([])
 
   useEffect(() => {

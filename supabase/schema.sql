@@ -4,7 +4,7 @@
 -- ============================================================
 
 -- 1. CUSTOM TYPES ------------------------------------------------
-create type user_role   as enum ('borrower', 'admin', 'petugas', 'nasabah');
+create type user_role   as enum ('admin', 'nasabah');  -- M21: petugas & borrower dihapus (aplikasi admin-only)
 create type kyc_status  as enum ('pending', 'verified', 'rejected');
 create type doc_type    as enum ('ktp', 'selfie');
 create type loan_frequency as enum ('weekly', 'monthly');  -- v2.0 bank keliling
@@ -13,7 +13,7 @@ create type loan_status as enum ('submitted', 'under_review', 'approved', 'rejec
 -- 2. PROFILES (1-1 dengan auth.users) ----------------------------
 create table public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
-  role        user_role  not null default 'nasabah',   -- v2.0: admin|petugas|nasabah
+  role        user_role  not null default 'nasabah',   -- M21: admin|nasabah (petugas dihapus)
   email       text       not null default '',  -- copy dari auth.users
   full_name   text       not null default '',  -- = nama sesuai KTP
   -- --- Data KTP (model koperasi: full KTP wajib) ---
@@ -42,15 +42,12 @@ create table public.profiles (
   home_lng   double precision,
   office_lat double precision,                     -- shareloc kantor (opsional)
   office_lng double precision,
-  petugas_id  uuid references public.profiles(id) on delete set null,  -- v2.0: petugas penanggung jawab
-  wilayah     text       default '',             -- v2.0: wilayah (petugas) / domisili tagihan
   kyc_status  kyc_status not null default 'pending',
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
-create index idx_profiles_petugas on public.profiles(petugas_id);
 
--- Kontak darurat (2 per borrower: seq 1 & 2, nama+hubungan+nomor wajib)
+-- Kontak darurat (2 per nasabah: seq 1 & 2, nama+hubungan+nomor wajib)
 create table public.emergency_contacts (
   id         uuid primary key default gen_random_uuid(),
   user_id    uuid not null references public.profiles(id) on delete cascade,
@@ -77,7 +74,7 @@ create table public.kyc_documents (
   created_at   timestamptz not null default now()
 );
 
--- 4. LOANS (v2.0: frequency + bunga 15% + tenor s/d 52 + late_fee + collected_by)
+-- 4. LOANS (v2.0: frequency + bunga 20% + tenor s/d 52 + late_fee + dicatat_oleh)
 create table public.loans (
   id              uuid primary key default gen_random_uuid(),
   user_id         uuid not null references public.profiles(id) on delete cascade,
@@ -90,7 +87,7 @@ create table public.loans (
   collateral_detail text default '',                       -- v3.0: detail jaminan
   monthly_payment bigint not null,   -- = cicilan per periode (nama kolom dipertahankan)
   late_fee        bigint not null default 0,           -- v2.0: denda (0 sampai ditentukan)
-  collected_by    uuid references public.profiles(id) on delete set null,  -- v2.0: petugas input terakhir
+  dicatat_oleh    uuid references public.profiles(id) on delete set null,  -- M21: admin pencatat (dulu collected_by)
   purpose         text default '',
   status          loan_status not null default 'submitted',
   reject_reason   text,
@@ -110,7 +107,7 @@ begin
     new.late_fee      = 0;
     new.decided_by    = null;
     new.decided_at    = null;
-    new.collected_by  = null;
+    new.dicatat_oleh  = null;
     if new.frequency is null then new.frequency = 'weekly'; end if;
     if new.frequency = 'monthly' and new.tenor_months not in (1,3) then
       raise exception 'Untuk bulanan pilih tenor 1 atau 3 bulan';
@@ -132,7 +129,7 @@ $$;
 create trigger loans_guard before insert on public.loans
   for each row execute function public.loans_guard_insert();
 
--- 5. INSTALLMENTS (v2.0: + paid_by + amount_paid cicilan parsial) -----------
+-- 5. INSTALLMENTS (v2.0: + amount_paid cicilan parsial; M21: dicatat_oleh) ---
 create table public.installments (
   id         uuid primary key default gen_random_uuid(),
   loan_id    uuid not null references public.loans(id) on delete cascade,
@@ -140,7 +137,7 @@ create table public.installments (
   due_date   date not null,
   amount     bigint not null,
   amount_paid bigint not null default 0,   -- v2.0: terkumpul (parsial)
-  paid_by    uuid references public.profiles(id) on delete set null,  -- v2.0: petugas penerima
+  dicatat_oleh uuid references public.profiles(id) on delete set null,  -- M21: admin pencatat (dulu paid_by)
   status     text not null default 'unpaid' check (status in ('unpaid','paid','overdue')),
   paid_at    timestamptz,
   unique (loan_id, seq)
@@ -163,7 +160,7 @@ create table public.payments (
   loan_id        uuid not null references public.loans(id) on delete cascade,
   installment_id uuid references public.installments(id) on delete set null,
   nasabah_id     uuid not null references public.profiles(id) on delete cascade,
-  petugas_id     uuid references public.profiles(id) on delete set null,
+  dicatat_oleh   uuid references public.profiles(id) on delete set null,  -- M21: admin pencatat (dulu petugas_id)
   amount         bigint not null check (amount <> 0),   -- v2.0: positif = setoran, negatif = koreksi (void)
   paid_at        timestamptz not null default now(),
   note           text default '',
@@ -173,52 +170,14 @@ create table public.payments (
   created_at     timestamptz not null default now()
 );
 create index idx_pay_loan    on public.payments(loan_id);
-create index idx_pay_petugas on public.payments(petugas_id, paid_at);
+create index idx_pay_dicatat on public.payments(dicatat_oleh, paid_at);
 create index idx_pay_nasabah on public.payments(nasabah_id);
 create index idx_pay_void    on public.payments(void_of) where void_of is not null;
-
--- 6c. COLLECTION_ROUTES: penugasan nasabah → petugas (v2.0) ------------------
-create table public.collection_routes (
-  id         uuid primary key default gen_random_uuid(),
-  petugas_id uuid not null references public.profiles(id) on delete cascade,
-  nasabah_id uuid not null references public.profiles(id) on delete cascade,
-  wilayah    text default '',
-  aktif      boolean not null default true,
-  created_at timestamptz not null default now(),
-  unique (petugas_id, nasabah_id)
-);
-create index idx_route_petugas on public.collection_routes(petugas_id) where aktif;
-create index idx_route_nasabah on public.collection_routes(nasabah_id) where aktif;
-
--- 6d. CALON NASABAH: didaftarkan petugas di lapangan (M6b) --------------------
--- Owner meng-convert jadi akun via GoTrue Admin + tandai jadi_nasabah.
-create table public.calon_nasabah (
-  id               uuid primary key default gen_random_uuid(),
-  petugas_id       uuid not null references public.profiles(id) on delete cascade,
-  nama             text not null default '',
-  nik              text not null default '',
-  phone            text not null default '',
-  alamat           text default '',
-  wilayah          text default '',
-  ktp_path         text default '',   -- path di bucket kyc-documents: calon/{petugas_id}/{ts}.jpg
-  status           text not null default 'baru' check (status in ('baru','diproses','jadi_nasabah','ditolak')),
-  owner_note       text default '',
-  converted_user_id uuid references public.profiles(id) on delete set null,
-  created_at       timestamptz not null default now()
-);
-create index idx_calon_petugas on public.calon_nasabah(petugas_id, status);
-create index idx_calon_status  on public.calon_nasabah(status);
 
 -- 7. HELPER: apakah user admin ----------------------------------------
 create or replace function public.is_admin()
 returns boolean language sql stable security definer set search_path = public as $$
   select exists(select 1 from public.profiles where id = auth.uid() and role = 'admin');
-$$;
-
--- 7b. HELPER: apakah user petugas (v2.0) -------------------------------------
-create or replace function public.is_petugas()
-returns boolean language sql stable security definer set search_path = public as $$
-  select exists(select 1 from public.profiles where id = auth.uid() and role = 'petugas');
 $$;
 
 -- 8. AUTO-CREATE profile saat user baru mendaftar (v2.0: default nasabah) -----
@@ -319,7 +278,7 @@ begin
 end;
 $$;
 
--- 10. RPC: pembayaran TUNAI oleh petugas (v2.0, FR-B6b) -----------------------
+-- 10. RPC: pembayaran TUNAI oleh admin (v2.0, FR-B6b; M21: admin-only) -------
 -- v2.0-autoapply: kelebihan mengalir ke cicilan berikutnya (prioritas due terdekat).
 -- Tiap aliran = 1 baris payments (audit 1:1). Total > sisa hutang = DITOLAK.
 -- Pengganti pay_installment untuk bank keliling: catat payments + dukung parsial.
@@ -331,8 +290,8 @@ declare
   v_to_apply bigint; v_left bigint; cur record;
   v_loan_total_due bigint; v_flows int;
 begin
-  if not (public.is_petugas() or public.is_admin()) then
-    raise exception 'Hanya petugas atau admin yang dapat mencatat pembayaran';
+  if not public.is_admin() then
+    raise exception 'Hanya admin yang dapat mencatat pembayaran';
   end if;
   if p_amount is null or p_amount <= 0 then
     raise exception 'Nominal pembayaran harus lebih dari 0';
@@ -357,11 +316,11 @@ begin
      set amount_paid = coalesce(amount_paid,0) + least(v_left, amount - coalesce(amount_paid,0)),
          status = case when coalesce(amount_paid,0) + least(v_left, amount - coalesce(amount_paid,0)) >= amount then 'paid' else status end,
          paid_at = case when coalesce(amount_paid,0) + least(v_left, amount - coalesce(amount_paid,0)) >= amount then now() else paid_at end,
-         paid_by = auth.uid()
+         dicatat_oleh = auth.uid()
    where id = tgt.id;
   v_to_apply := least(v_left, tgt.amount - coalesce(tgt.amount_paid,0));
   v_left := v_left - v_to_apply;
-  insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note)
+  insert into public.payments (loan_id, installment_id, nasabah_id, dicatat_oleh, amount, note)
   values (tgt.loan_id, tgt.id, lr.user_id, auth.uid(), v_to_apply, coalesce(p_note,''));
   -- kelebihan mengalir ke cicilan berikutnya (due terdekat = tunggakan dulu)
   for cur in select * from public.installments
@@ -376,17 +335,17 @@ begin
        set amount_paid = coalesce(amount_paid,0) + v_to_apply,
            status = case when coalesce(amount_paid,0) + v_to_apply >= amount then 'paid' else status end,
            paid_at = case when coalesce(amount_paid,0) + v_to_apply >= amount then now() else paid_at end,
-           paid_by = auth.uid()
+           dicatat_oleh = auth.uid()
      where id = cur.id;
     v_left := v_left - v_to_apply;
-    insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note)
+    insert into public.payments (loan_id, installment_id, nasabah_id, dicatat_oleh, amount, note)
     values (tgt.loan_id, cur.id, lr.user_id, auth.uid(), v_to_apply,
             'Kelebihan dari cicilan #' || tgt.seq || coalesce(' ' || nullif(p_note,''), ''));
   end loop;
   if lr.status = 'disbursed' then
     update public.loans set status = 'active' where id = lr.id;
   end if;
-  update public.loans set collected_by = auth.uid() where id = lr.id;
+  update public.loans set dicatat_oleh = auth.uid() where id = lr.id;
   insert into public.notifications (user_id, title, body, type)
   values (lr.user_id,
     case when not exists (select 1 from public.installments where loan_id = tgt.loan_id and status <> 'paid')
@@ -406,7 +365,7 @@ $$;
 create or replace function public.void_payment(p_payment_id uuid, p_reason text)
 returns void language plpgsql security definer set search_path = public as $$
 declare
-  pm record; v_reason text; v_is_admin boolean;
+  pm record; v_reason text;
 begin
   v_reason := btrim(coalesce(p_reason,''));
   if v_reason = '' then
@@ -422,20 +381,11 @@ begin
   if exists (select 1 from public.payments where void_of = pm.id) then
     raise exception 'Transaksi ini sudah pernah dikoreksi';
   end if;
-  v_is_admin := public.is_admin();
-  if not v_is_admin then
-    if not public.is_petugas() then
-      raise exception 'Hanya petugas atau admin yang dapat mengoreksi';
-    end if;
-    if pm.petugas_id is distinct from auth.uid() then
-      raise exception 'Petugas hanya dapat mengoreksi transaksi miliknya sendiri';
-    end if;
-    if pm.paid_at::date <> (now() at time zone 'Asia/Jakarta')::date then
-      raise exception 'Koreksi mandiri hanya untuk transaksi hari ini. Hubungi owner.';
-    end if;
+  if not public.is_admin() then
+    raise exception 'Hanya admin yang dapat mengoreksi';
   end if;
   -- baris lawan negatif
-  insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note, void_of, void_reason)
+  insert into public.payments (loan_id, installment_id, nasabah_id, dicatat_oleh, amount, note, void_of, void_reason)
   values (pm.loan_id, pm.installment_id, pm.nasabah_id, auth.uid(),
           -pm.amount, 'KOREKSI: ' || v_reason, pm.id, v_reason);
   update public.payments set voided_at = now(), void_reason = v_reason where id = pm.id;
@@ -572,11 +522,11 @@ begin
     raise exception 'Pinjaman tidak dalam status berjalan';
   end if;
   update public.installments
-     set status='paid', amount_paid = ins.amount, paid_at=now(), paid_by=auth.uid()
+     set status='paid', amount_paid = ins.amount, paid_at=now(), dicatat_oleh=auth.uid()
    where id = p_installment_id;
   -- v2.0: catat juga ke payments agar rekap setoran konsisten dengan installments
   select user_id into v_nasabah from public.loans where id = ins.loan_id;
-  insert into public.payments (loan_id, installment_id, nasabah_id, petugas_id, amount, note)
+  insert into public.payments (loan_id, installment_id, nasabah_id, dicatat_oleh, amount, note)
   values (ins.loan_id, ins.id, v_nasabah, auth.uid(),
           ins.amount - coalesce(ins.amount_paid, 0), 'pelunasan via admin web');
   insert into public.notifications (user_id, title, body, type)
@@ -635,7 +585,7 @@ create policy "own kyc read"   on public.kyc_documents for select using (auth.ui
 create policy "kyc write"      on public.kyc_documents for insert with check (auth.uid() = user_id or public.is_admin());  -- v3.2: admin boleh catat foto KTP nasabah
 create policy "admin kyc upd"  on public.kyc_documents for delete using (public.is_admin());
 
--- emergency_contacts: borrower kelola miliknya; admin baca (+hapus)
+-- emergency_contacts: pemilik kelola miliknya; admin baca (+hapus)
 alter table public.emergency_contacts enable row level security;
 create policy "own ec read"   on public.emergency_contacts for select using (auth.uid() = user_id or public.is_admin());
 create policy "own ec write"  on public.emergency_contacts for insert with check (auth.uid() = user_id);
@@ -643,63 +593,30 @@ create policy "own ec upd"    on public.emergency_contacts for update using (aut
 create policy "own ec del"    on public.emergency_contacts for delete using (auth.uid() = user_id or public.is_admin());
 
 -- loans: nasabah insert & baca miliknya; admin semua + update status;
--- v2.0: petugas baca loans nasabah dalam rute aktifnya
 create policy "own loans read"  on public.loans for select using (auth.uid() = user_id or public.is_admin());
 create policy "own loans ins"   on public.loans for insert with check (auth.uid() = user_id and status = 'submitted');
 create policy "admin loans upd" on public.loans for update using (public.is_admin());
-create policy "route loans read" on public.loans for select to authenticated using (
-  exists (select 1 from public.collection_routes r
-          where r.aktif and r.petugas_id = auth.uid() and r.nasabah_id = loans.user_id)
-);
 
 -- installments: read-only utk nasabah miliknya; admin kelola;
--- v2.0: petugas baca cicilan nasabah dalam rute aktifnya
 create policy "own inst read"  on public.installments for select using (
   exists (select 1 from public.loans l where l.id = loan_id and (l.user_id = auth.uid() or public.is_admin()))
 );
 create policy "admin inst upd" on public.installments for update using (public.is_admin());
-create policy "route inst read" on public.installments for select to authenticated using (
-  exists (select 1 from public.loans l
-          join public.collection_routes r on r.aktif and r.nasabah_id = l.user_id
-          where l.id = installments.loan_id and r.petugas_id = auth.uid())
-);
 
 alter table public.payments enable row level security;
-alter table public.collection_routes enable row level security;
 alter table public.loan_documents enable row level security;   -- v3.0
 create policy "pay read" on public.payments for select
-  using (auth.uid() = nasabah_id or auth.uid() = petugas_id or public.is_admin() or public.is_petugas());
-create policy "pay write petugas" on public.payments for insert
-  with check (public.is_petugas() or public.is_admin());
-create policy "route read" on public.collection_routes for select
-  using (auth.uid() = nasabah_id or auth.uid() = petugas_id or public.is_admin());
-create policy "route admin write" on public.collection_routes for insert
+  using (auth.uid() = nasabah_id or public.is_admin());
+create policy "pay write" on public.payments for insert
   with check (public.is_admin());
-create policy "route admin upd" on public.collection_routes for update
-  using (public.is_admin());
-create policy "route admin del" on public.collection_routes for delete
-  using (public.is_admin());
 
--- loan_documents v3.0: nasabah baca miliknya; petugas/admin kelola
+-- loan_documents v3.0: pemilik baca miliknya; admin kelola
 create policy "loan docs read" on public.loan_documents for select
-  using (public.is_admin() or public.is_petugas()
+  using (public.is_admin()
     or exists (select 1 from public.loans l where l.id = loan_id and l.user_id = auth.uid()));
 create policy "loan docs write" on public.loan_documents for insert
-  with check (public.is_admin() or public.is_petugas()
+  with check (public.is_admin()
     or exists (select 1 from public.loans l where l.id = loan_id and l.user_id = auth.uid()));
-
--- calon_nasabah (M6b): petugas insert + baca miliknya; owner kelola
-alter table public.calon_nasabah enable row level security;
-create policy "calon petugas write" on public.calon_nasabah for insert to authenticated
-  with check (auth.uid() = petugas_id and (public.is_petugas() or public.is_admin()));
-create policy "calon petugas read" on public.calon_nasabah for select to authenticated
-  using (auth.uid() = petugas_id or public.is_admin());
-create policy "calon admin upd" on public.calon_nasabah for update to authenticated
-  using (public.is_admin());
-
--- storage kyc-documents (M6b): izinkan prefix calon/ untuk petugas/owner
--- (policy "kyc insert own folder" & "kyc select own or admin" di-update di server:
---  folder[1]='calon' diizinkan bila is_petugas() atau is_admin())
 
 -- notifications
 create policy "own notif read" on public.notifications for select using (auth.uid() = user_id or public.is_admin());
@@ -755,84 +672,6 @@ revoke all on function public.mark_overdue_installments() from public, anon, aut
 -- 00:00 WIB = 17:00 UTC hari sebelumnya
 select cron.schedule('danaku-mark-overdue', '0 17 * * *',
                      'select public.mark_overdue_installments();');
-
-create or replace function public.convert_calon_internal(
-  p_calon_id uuid,
-  p_user_id uuid,
-  p_assign_route boolean default true
-)
-returns jsonb language plpgsql security definer set search_path = public as $$
-declare
-  c record;
-  v_route boolean := false;
-  v_conflict uuid;
-begin
-  select * into c from public.calon_nasabah where id = p_calon_id for update;
-  if c.id is null then
-    raise exception 'Calon tidak ditemukan';
-  end if;
-  if c.status = 'jadi_nasabah' then
-    raise exception 'Calon ini sudah dikonversi jadi nasabah';
-  end if;
-  if c.status = 'ditolak' then
-    raise exception 'Calon ini sudah ditolak — ubah status ke "diproses" dulu';
-  end if;
-  if not exists (select 1 from public.profiles where id = p_user_id) then
-    raise exception 'Profil akun hasil convert tidak ditemukan';
-  end if;
-
-  if nullif(btrim(c.nik), '') is not null then
-    select id into v_conflict from public.profiles
-     where nik = btrim(c.nik) and id <> p_user_id limit 1;
-    if v_conflict is not null then
-      raise exception 'NIK % sudah dipakai nasabah lain', c.nik;
-    end if;
-  end if;
-
-  update public.profiles set
-    full_name       = coalesce(nullif(btrim(full_name), ''), nullif(c.nama, '')),
-    nik             = coalesce(nullif(btrim(nik), ''), nullif(btrim(c.nik), '')),
-    phone           = coalesce(nullif(btrim(phone), ''), nullif(btrim(c.phone), '')),
-    address         = coalesce(nullif(btrim(address), ''), nullif(btrim(c.alamat), '')),
-    current_address = coalesce(nullif(btrim(current_address), ''), nullif(btrim(c.alamat), '')),
-    wilayah         = coalesce(nullif(btrim(wilayah), ''), nullif(c.wilayah, '')),
-    petugas_id      = coalesce(petugas_id, c.petugas_id),
-    kyc_status      = 'verified'
-  where id = p_user_id;
-
-  if p_assign_route and c.petugas_id is not null then
-    insert into public.collection_routes (petugas_id, nasabah_id, wilayah, aktif)
-    values (c.petugas_id, p_user_id, coalesce(c.wilayah, ''), true)
-    on conflict (petugas_id, nasabah_id)
-      do update set aktif = true, wilayah = excluded.wilayah;
-    v_route := true;
-  end if;
-
-  update public.calon_nasabah
-     set status = 'jadi_nasabah',
-         converted_user_id = p_user_id,
-         owner_note = case when coalesce(btrim(owner_note), '') = ''
-                           then 'Convert 1-klik ' ||
-                                to_char(now() at time zone 'Asia/Jakarta', 'DD-MM-YYYY HH24:MI')
-                           else owner_note end
-   where id = p_calon_id;
-
-  insert into public.notifications (user_id, title, body, type)
-  values (p_user_id, 'Akun Nasabah Aktif',
-          'Pendaftaran Anda telah diproses. Silakan hubungi petugas untuk pengajuan pinjaman.',
-          'info');
-
-  return jsonb_build_object(
-    'user_id', p_user_id,
-    'calon_id', p_calon_id,
-    'route_assigned', v_route,
-    'petugas_id', c.petugas_id
-  );
-end;
-$$;
-revoke all on function public.convert_calon_internal(uuid, uuid, boolean)
-  from public, anon, authenticated;
-grant execute on function public.convert_calon_internal(uuid, uuid, boolean) to service_role;
 
 -- 14. SETELAH INI, jalankan manual di Dashboard:
 --   a. Storage > New bucket: name = 'kyc-documents', PRIVATE bucket.

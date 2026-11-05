@@ -11,7 +11,7 @@ import {
   subscribeToTables,
 } from '../lib/api'
 import type { Installment, Loan, LoanDocument } from '../lib/api'
-import BorrowerEmergencyContacts from '../components/EmergencyContacts'
+import EmergencyContacts from '../components/EmergencyContacts'
 import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
 const INST_CLASS: Record<string, string> = {
@@ -265,7 +265,7 @@ export default function LoanDetail() {
           {showReject && decidable && (
             <div className="mt-3 space-y-2">
               <textarea
-                placeholder="Alasan penolakan (dikirim sebagai notifikasi ke borrower)…"
+                placeholder="Alasan penolakan (dikirim sebagai notifikasi ke nasabah)…"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 rows={2}
@@ -288,9 +288,9 @@ export default function LoanDetail() {
           )}
         </div>
 
-        {/* Data borrower */}
+        {/* Data nasabah */}
         <div className="rounded-xl bg-white p-5 shadow-sm">
-          <div className="mb-3 text-sm font-semibold text-slate-700">Data Borrower (KTP)</div>
+          <div className="mb-3 text-sm font-semibold text-slate-700">Data Nasabah (KTP)</div>
           <dl className="space-y-2 text-sm">
             <Row label="Nama" value={loan.profiles?.full_name || '(tanpa nama)'} />
             <Row label="NIK" value={loan.profiles?.nik || '—'} />
@@ -325,7 +325,7 @@ export default function LoanDetail() {
               value={loan.profiles?.kyc_status ?? '—'}
             />
           </dl>
-          <BorrowerEmergencyContacts userId={loan.user_id} />
+          <EmergencyContacts userId={loan.user_id} />
         </div>
       </div>
 

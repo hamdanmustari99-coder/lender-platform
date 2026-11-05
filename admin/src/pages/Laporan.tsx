@@ -100,7 +100,6 @@ export default function Laporan() {
                 <tr key={r.nasabahId} className="border-b border-slate-100 last:border-0">
                   <td className="py-2.5 font-medium text-slate-800">
                     {r.nama}
-                    <div className="text-xs font-normal text-slate-500">{r.email}</div>
                   </td>
                   <td className="py-2.5">
                     <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">
@@ -139,7 +138,6 @@ export default function Laporan() {
                   >
                     {r.nama}
                   </Link>
-                  <div className="text-xs font-normal text-slate-500">{r.email}</div>
                 </td>
                 <td className="py-2.5 text-slate-600">{fmtRp(r.totalTagihan)}</td>
                 <td className="py-2.5 text-emerald-700">{fmtRp(r.totalBayar)}</td>
