@@ -169,6 +169,41 @@ export async function fetchInstallments(loanId: string): Promise<Installment[]> 
   return (data ?? []) as Installment[]
 }
 
+/**
+ * Cicilan banyak pinjaman dalam SATU request (bukan N+1).
+ *
+ * Laporan tadinya loop `await fetchInstallments(l.id)` per pinjaman — 30 pinjaman
+ * = 30 round-trip berurutan ke Supabase, itu yang bikin halaman lambat.
+ * Di sini dipakai satu query `in.(...)`, hasilnya di-group jadi Map<loanId, []>.
+ *
+ * Chunk 200 ID per request supaya URL tidak kepanjangan (batas aman ~8KB).
+ */
+export async function fetchInstallmentsForLoans(
+  loanIds: string[],
+): Promise<Map<string, Installment[]>> {
+  const out = new Map<string, Installment[]>()
+  if (loanIds.length === 0) return out
+  for (const id of loanIds) out.set(id, [])
+
+  const CHUNK = 200
+  for (let i = 0; i < loanIds.length; i += CHUNK) {
+    const slice = loanIds.slice(i, i + CHUNK)
+    const { data, error } = await supabase
+      .from('installments')
+      .select('*')
+      .in('loan_id', slice)
+      .order('loan_id', { ascending: true })
+      .order('seq', { ascending: true })
+    if (error) throw error
+    for (const inst of (data ?? []) as Installment[]) {
+      const arr = out.get(inst.loan_id)
+      if (arr) arr.push(inst)
+      else out.set(inst.loan_id, [inst])
+    }
+  }
+  return out
+}
+
 export async function fetchProfiles(): Promise<Profile[]> {
   const { data, error } = await supabase
     .from('profiles')

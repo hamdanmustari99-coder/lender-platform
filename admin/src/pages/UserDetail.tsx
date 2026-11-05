@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  fetchInstallments,
+  fetchInstallmentsForLoans,
   fetchLoansByUser,
   fetchNasabahDocuments,
   fetchNasabahTelatFlag,
@@ -54,15 +54,8 @@ export default function UserDetail() {
         .then(setDocs)
         .catch(() => setDocs([]))
       if (l.length > 0) {
-        const entries = await Promise.all(
-          l.map(async (loan) => {
-            try {
-              return [loan.id, await fetchInstallments(loan.id)] as const
-            } catch {
-              return [loan.id, []] as const
-            }
-          }),
-        )
+        const byLoan = await fetchInstallmentsForLoans(l.map((loan) => loan.id))
+        const entries = l.map((loan) => [loan.id, byLoan.get(loan.id) ?? []] as const)
         setInstallments(Object.fromEntries(entries))
       } else {
         setInstallments({})

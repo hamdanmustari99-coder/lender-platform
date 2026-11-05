@@ -15,7 +15,7 @@ import {
 } from 'recharts'
 import {
   aggregateSetoran,
-  fetchInstallments,
+  fetchInstallmentsForLoans,
   fetchLoans,
   fetchPayments,
   fetchProfiles,
@@ -53,16 +53,15 @@ export default function Dashboard() {
       setSetoranHariIni(hariIni.reduce((s, r) => s + r.total, 0))
       setPetugasAktif(new Set(hariIni.map((r) => r.petugasId)).size)
 
-      // Nunggak: cicilan unpaid lewat due_date (data MVP kecil — N+1 wajar)
+      // Nunggak: cicilan unpaid lewat due_date.
+      // Cicilan diambil sekali untuk semua pinjaman (bukan N+1 per pinjaman).
       const items: NunggakItem[] = []
-      for (const loan of l) {
-        if (loan.status !== 'disbursed' && loan.status !== 'active') continue
-        let insts: Installment[] = []
-        try {
-          insts = await fetchInstallments(loan.id)
-        } catch {
-          insts = []
-        }
+      const loanAktif = l.filter(
+        (loan) => loan.status === 'disbursed' || loan.status === 'active',
+      )
+      const instByLoan = await fetchInstallmentsForLoans(loanAktif.map((x) => x.id))
+      for (const loan of loanAktif) {
+        const insts = instByLoan.get(loan.id) ?? []
         const telat = insts.filter(
           (i) => i.status !== 'paid' && i.due_date.slice(0, 10) < today,
         )

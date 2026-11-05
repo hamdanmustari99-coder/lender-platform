@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   buildPiutang,
-  fetchInstallments,
+  fetchInstallmentsForLoans,
   fetchLoans,
   subscribeToTables,
   totalLaba,
 } from '../lib/api'
-import type { Installment, Loan, PiutangNasabah } from '../lib/api'
+import type { Loan, PiutangNasabah } from '../lib/api'
 import { errMsg, fmtRp } from '../lib/format'
 
 /**
@@ -24,16 +24,9 @@ export default function Laporan() {
     try {
       const ls = await fetchLoans()
       setLoans(ls)
-      // installments per loan (data MVP kecil — N+1 query masih wajar)
-      const byLoan = new Map<string, Installment[]>()
-      for (const l of ls) {
-        if (l.status === 'rejected') continue
-        try {
-          byLoan.set(l.id, await fetchInstallments(l.id))
-        } catch {
-          byLoan.set(l.id, [])
-        }
-      }
+      // Cicilan semua pinjaman dalam 1 request (bukan N+1 per pinjaman).
+      const aktif = ls.filter((l) => l.status !== 'rejected')
+      const byLoan = await fetchInstallmentsForLoans(aktif.map((l) => l.id))
       setRows(buildPiutang(ls, byLoan))
       setError(null)
     } catch (e) {
