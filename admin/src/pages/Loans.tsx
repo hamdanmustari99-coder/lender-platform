@@ -1,17 +1,27 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { fetchLoans, subscribeToTables } from '../lib/api'
+import { Link, useSearchParams } from 'react-router-dom'
+import { fetchInstallmentsForLoans, fetchLoans, subscribeToTables } from '../lib/api'
 import type { Loan, LoanStatus } from '../lib/api'
 import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
 const STATUSES: LoanStatus[] = ['disbursed', 'active', 'completed', 'rejected']
 
 export default function Loans() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [loans, setLoans] = useState<Loan[]>([])
+  const [overdueIds, setOverdueIds] = useState<Set<string>>(new Set())
+  const [overdueLoading, setOverdueLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<LoanStatus | 'all'>('all')
   const [search, setSearch] = useState('')
+
+  const overdueFilter = searchParams.get('filter') === 'overdue'
+
+  const todayWIB = (): string => {
+    const d = new Date()
+    return new Date(d.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  }
 
   const load = useCallback(async () => {
     try {
@@ -26,12 +36,45 @@ export default function Loans() {
 
   useEffect(() => {
     void load()
-    return subscribeToTables(['loans'], () => void load())
+    return subscribeToTables(['loans', 'installments', 'payments'], () => void load())
   }, [load])
+
+  useEffect(() => {
+    if (!overdueFilter) {
+      setOverdueIds(new Set())
+      return
+    }
+    let cancelled = false
+    const active = loans.filter((l) => l.status === 'disbursed' || l.status === 'active')
+    setOverdueLoading(true)
+    void fetchInstallmentsForLoans(active.map((l) => l.id))
+      .then((byLoan) => {
+        if (cancelled) return
+        const today = todayWIB()
+        const ids = new Set<string>()
+        for (const loan of active) {
+          const overdue = (byLoan.get(loan.id) ?? []).some(
+            (i) => i.status !== 'paid' && i.due_date.slice(0, 10) < today,
+          )
+          if (overdue) ids.add(loan.id)
+        }
+        setOverdueIds(ids)
+      })
+      .catch(() => {
+        if (!cancelled) setOverdueIds(new Set())
+      })
+      .finally(() => {
+        if (!cancelled) setOverdueLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [loans, overdueFilter])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return loans.filter((l) => {
+      if (overdueFilter && !overdueIds.has(l.id)) return false
       if (statusFilter !== 'all' && l.status !== statusFilter) return false
       if (!q) return true
       const name = l.profiles?.full_name?.toLowerCase() ?? ''
@@ -39,16 +82,29 @@ export default function Loans() {
       const phone = l.profiles?.phone?.toLowerCase() ?? ''
       return name.includes(q) || nik.includes(q) || phone.includes(q)
     })
-  }, [loans, statusFilter, search])
+  }, [loans, statusFilter, search, overdueFilter, overdueIds])
 
-  if (loading) return <div className="text-sm text-slate-500">Memuat data…</div>
+  const statusCount = (status: LoanStatus): number => loans.filter((l) => l.status === status).length
+
+  if (loading) {
+    return (
+      <div className="space-y-3" aria-live="polite">
+        <div className="h-8 w-40 animate-pulse rounded-lg bg-slate-200" />
+        <div className="h-12 animate-pulse rounded-2xl bg-slate-200" />
+        <div className="h-28 animate-pulse rounded-2xl bg-slate-200" />
+        <span className="sr-only">Memuat data pinjaman…</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
-          Pinjaman
-        </h1>
+      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Portofolio pembiayaan</p>
+          <h1 className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">Pinjaman</h1>
+          <p className="mt-1 text-sm text-slate-500">Cari, filter, dan buka detail pinjaman tanpa kehilangan konteks pembayaran.</p>
+        </div>
         <Link
           to="/loans/new"
           className="hidden rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 lg:inline-block"
@@ -58,7 +114,27 @@ export default function Loans() {
       </div>
 
       {error && (
-        <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+          <span>Gagal memuat pinjaman: {error}</span>
+          <button onClick={() => void load()} className="min-h-11 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white hover:bg-rose-800">Coba lagi</button>
+        </div>
+      )}
+
+      {overdueFilter && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3" role="status">
+          <div>
+            <p className="text-sm font-extrabold text-rose-900">Pinjaman dengan cicilan menunggak</p>
+            <p className="mt-0.5 text-xs text-rose-800">
+              {overdueLoading ? 'Memeriksa jadwal cicilan…' : `${filtered.length} pinjaman perlu ditindak.`}
+            </p>
+          </div>
+          <button
+            onClick={() => setSearchParams({})}
+            className="min-h-11 rounded-lg border border-rose-300 bg-white px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100"
+          >
+            Tampilkan semua pinjaman
+          </button>
+        </div>
       )}
 
       {/* Search + filter status */}
@@ -67,7 +143,8 @@ export default function Loans() {
           placeholder="Cari nama / NIK / telepon…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none lg:w-64"
+          aria-label="Cari pinjaman berdasarkan nama, NIK, atau telepon"
+          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none lg:w-64"
         />
         <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible">
           <button
@@ -78,7 +155,7 @@ export default function Loans() {
                 : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
             }`}
           >
-            Semua
+            Semua <span className="ml-1 opacity-70">{loans.length}</span>
           </button>
           {STATUSES.map((s) => (
             <button
@@ -90,7 +167,7 @@ export default function Loans() {
                   : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
               }`}
             >
-              {LOAN_STATUS_LABEL[s]}
+              {LOAN_STATUS_LABEL[s]} <span className="ml-1 opacity-70">{statusCount(s)}</span>
             </button>
           ))}
         </div>

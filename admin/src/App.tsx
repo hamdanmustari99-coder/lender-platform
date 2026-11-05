@@ -4,6 +4,7 @@ import { supabase } from './lib/supabase'
 import { fetchMyProfile } from './lib/api'
 import Layout from './components/Layout.tsx'
 import { ConfirmProvider } from './components/ConfirmDialog.tsx'
+import { ToastProvider } from './components/Toast.tsx'
 import Login from './pages/Login.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Loans from './pages/Loans.tsx'
@@ -87,8 +88,9 @@ export default function App() {
   }
 
   return (
-    <ConfirmProvider>
-      <BrowserRouter>
+    <ToastProvider>
+      <ConfirmProvider>
+        <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
@@ -104,7 +106,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
-      </BrowserRouter>
-    </ConfirmProvider>
+        </BrowserRouter>
+      </ConfirmProvider>
+    </ToastProvider>
   )
 }

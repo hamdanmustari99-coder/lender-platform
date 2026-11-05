@@ -17,6 +17,9 @@
   --color-admin-dark: #0f172a;
   --color-admin-card: #1e293b;
   --color-admin-sidebar: #0b1120;
+  --color-admin-bg: #f1f5f9;
+  --color-admin-border: #e2e8f0;
+  --color-admin-muted: #64748b;
 
   --font-sans: "Plus Jakarta Sans", system-ui, "Segoe UI", Roboto, sans-serif;
 }
@@ -33,7 +36,9 @@
     /* Guard global: jangan sampai ada elemen yang bikin horizontal scroll
        di layar HP. Elemen yang memang lebar (tabel desktop) sudah dibungkus
        overflow-x-auto sendiri, jadi ini hanya jaring pengaman. */
-    overflow-x: hidden;
+    overflow-x: clip;
+    background: var(--color-admin-bg);
+    color: #1e293b;
   }
   ::-webkit-scrollbar {
     width: 6px;
@@ -58,6 +63,38 @@
     -webkit-overflow-scrolling: touch;
   }
 }
+
+/* Angka uang dan jumlah harus mudah dibandingkan secara vertikal. */
+.tabular-nums,
+td,
+[data-metric] {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Focus state global: keyboard user selalu melihat posisi aktif. */
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, #16a34a 55%, white);
+  outline-offset: 2px;
+}
+
+@keyframes dm-page-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes dm-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.dm-toast { animation: dm-toast-in 0.18s ease-out both; }
 
 /* Animasi masuk modal (setara animate-in fade-in zoom-in mockup) */
 @keyframes dm-fade-in {

@@ -8,6 +8,7 @@ import {
   subscribeToTables,
 } from '../lib/api'
 import type { CashTransaction, CashTipe, KasHarianRow } from '../lib/api'
+import { useToast } from '../components/Toast'
 import { fmtRp, errMsg } from '../lib/format'
 
 const fmtTanggal = (iso: string): string =>
@@ -20,6 +21,7 @@ const fmtTanggal = (iso: string): string =>
   })
 
 export default function ArusKas() {
+  const { showToast } = useToast()
   const [rows, setRows] = useState<KasHarianRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -112,8 +114,11 @@ export default function ArusKas() {
       if (selected) {
         setDetail(await fetchCashByDate(selected))
       }
+      showToast('Transaksi kas berhasil dicatat.', 'success')
     } catch (e) {
-      setError(errMsg(e))
+      const message = errMsg(e)
+      setError(message)
+      showToast(message, 'error')
     } finally {
       setBusy(false)
     }
@@ -126,12 +131,12 @@ export default function ArusKas() {
       {/* Header */}
       <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h2 className="text-xl font-black text-slate-900 sm:text-2xl">
-            Alur Uang Masuk &amp; Keluar
+          <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Keuangan · arus dana</p>
+          <h2 className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">
+            Arus Kas
           </h2>
-          <p className="text-xs text-slate-500">
-            Mencatat mutasi pencairan pinjaman, pembayaran nasabah, modal owner, dan
-            operasional.
+          <p className="mt-1 text-sm text-slate-500">
+            Jawab pertanyaan: uang bisnis bergerak ke mana? Pembayaran nasabah dan pencairan otomatis ikut tercatat.
           </p>
         </div>
         <button
@@ -491,7 +496,7 @@ export default function ArusKas() {
         </div>
       )}
 
-      {loading && <div className="text-sm text-slate-500">Memuat data kas…</div>}
+      {loading && <div className="text-sm text-slate-500" aria-live="polite">Memperbarui arus kas…</div>}
     </div>
   )
 }

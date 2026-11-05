@@ -12,6 +12,7 @@ import { supabase, isConfigured } from '../lib/supabase'
  */
 const NAV = [
   { to: '/', label: 'Dashboard', short: 'Home', end: true, icon: HomeIcon },
+  { to: '/loans', label: 'Pinjaman', short: 'Pinjaman', end: false, icon: LoanIcon },
   { to: '/users', label: 'Nasabah', short: 'Nasabah', end: false, icon: UsersIcon },
   { to: '/arus-kas', label: 'Arus Kas', short: 'Kas', end: false, icon: CashIcon },
   { to: '/setoran', label: 'Setoran', short: 'Setoran', end: false, icon: WalletIcon },
@@ -19,9 +20,9 @@ const NAV = [
 ]
 
 const tabBase =
-  'px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap'
-const tabIdle = 'text-slate-300 hover:text-white hover:bg-slate-800'
-const tabActive = 'bg-primary-600 text-white shadow-sm font-bold'
+  'min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap inline-flex items-center'
+const tabIdle = 'text-slate-300 hover:text-white hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
+const tabActive = 'bg-primary-600 text-white shadow-sm font-bold focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
 
 export default function Layout() {
   return (
@@ -102,7 +103,7 @@ export default function Layout() {
       </header>
 
       {/* CONTENT — pb-24 di mobile supaya tidak ketutup bottom bar + FAB */}
-      <main className="mx-auto w-full max-w-7xl flex-1 px-3 py-4 pb-28 sm:px-6 sm:py-6 lg:px-8 lg:pb-8">
+      <main className="mx-auto w-full max-w-7xl flex-1 px-3 py-4 pb-28 motion-safe:animate-[dm-page-in_180ms_ease-out] sm:px-6 sm:py-6 lg:px-8 lg:pb-8">
         {!isConfigured && (
           <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-100 px-4 py-3 text-sm text-amber-800">
             ⚠️ Konfigurasi Supabase belum diisi — isi{' '}
@@ -141,7 +142,7 @@ export default function Layout() {
         aria-label="Menu utama"
       >
         <div className="flex items-stretch justify-around">
-          {NAV.map((n) => (
+          {NAV.filter((n) => n.to !== '/setoran').map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
@@ -191,6 +192,15 @@ function UsersIcon({ className }: IconProps) {
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+    </svg>
+  )
+}
+
+function LoanIcon({ className }: IconProps) {
+  return (
+    <svg className={className} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v9a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 16.5v-9z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 9h18m-5.25 4.5h2.25" />
     </svg>
   )
 }

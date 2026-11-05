@@ -10,12 +10,13 @@ import {
 } from '../lib/api'
 import type { Installment, Loan, LoanDocument } from '../lib/api'
 import EmergencyContacts from '../components/EmergencyContacts'
+import { useToast } from '../components/Toast'
 import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
 const INST_CLASS: Record<string, string> = {
-  unpaid: 'bg-slate-100 text-slate-700',
-  paid: 'bg-primary-100 text-primary-800',
-  overdue: 'bg-red-100 text-red-700',
+  unpaid: 'border border-slate-200 bg-slate-100 text-slate-700',
+  paid: 'border border-emerald-200 bg-emerald-50 text-emerald-800',
+  overdue: 'border border-rose-200 bg-rose-50 text-rose-800',
 }
 const INST_LABEL: Record<string, string> = {
   unpaid: 'Belum Bayar',
@@ -34,6 +35,7 @@ const cicilanLabel = (loan: Loan): string =>
 
 export default function LoanDetail() {
   const { id } = useParams<{ id: string }>()
+  const { showToast } = useToast()
   const [loan, setLoan] = useState<Loan | null>(null)
   const [installments, setInstallments] = useState<Installment[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -61,8 +63,11 @@ export default function LoanDetail() {
       setPayAmount('')
       setPayNote('')
       await load()
+      showToast('Pembayaran berhasil dicatat.', 'success')
     } catch (e) {
-      setActionErr(errMsg(e))
+      const message = errMsg(e)
+      setActionErr(message)
+      showToast(message, 'error')
     } finally {
       setBusy(false)
     }
@@ -117,10 +122,21 @@ export default function LoanDetail() {
 
   if (error) {
     return (
-      <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800" role="alert">
+        <span>Gagal memuat detail pinjaman: {error}</span>
+        <button onClick={() => void load()} className="min-h-11 rounded-lg bg-rose-700 px-3 py-2 text-xs font-bold text-white hover:bg-rose-800">Coba lagi</button>
+      </div>
     )
   }
-  if (!loan) return <div className="text-sm text-slate-500">Memuat…</div>
+  if (!loan) {
+    return (
+      <div className="space-y-3" aria-live="polite">
+        <div className="h-8 w-56 animate-pulse rounded-lg bg-slate-200" />
+        <div className="h-48 animate-pulse rounded-2xl bg-slate-200" />
+        <span className="sr-only">Memuat detail pinjaman…</span>
+      </div>
+    )
+  }
 
   const paidCount = installments.filter((i) => i.status === 'paid').length
   // Ringkasan bayar: total tagihan = pokok + bunga + denda; bayar = sum amount_paid
@@ -143,10 +159,14 @@ export default function LoanDetail() {
         ← Kembali ke daftar pinjaman
       </Link>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-black tracking-tight text-slate-900">
-          Pinjaman {fmtRp(loan.amount)}
-        </h1>
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Detail pembiayaan</p>
+          <h1 className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
+            {loan.profiles?.full_name || 'Pinjaman'}
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">Pinjaman {fmtRp(loan.amount)} · diajukan {fmtDate(loan.created_at)}</p>
+        </div>
         <span className={`rounded-full px-3 py-1 text-xs font-medium ${LOAN_STATUS_CLASS[loan.status]}`}>
           {LOAN_STATUS_LABEL[loan.status]}
         </span>
@@ -157,6 +177,20 @@ export default function LoanDetail() {
           Gagal: {actionErr}
         </div>
       )}
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" aria-labelledby="payment-progress-title">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <h2 id="payment-progress-title" className="text-sm font-extrabold text-slate-900">Progress pembayaran</h2>
+            <p className="mt-1 text-xs text-slate-500">{paidCount} dari {installments.length || 0} cicilan lunas</p>
+          </div>
+          <span className="text-lg font-black tabular-nums text-primary-700">{fmtRp(sisaHutang)}</span>
+        </div>
+        <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100" aria-label={`${paidCount} dari ${installments.length} cicilan lunas`}>
+          <div className="h-full rounded-full bg-primary-600 transition-[width]" style={{ width: `${installments.length ? Math.min(100, (paidCount / installments.length) * 100) : 0}%` }} />
+        </div>
+        <div className="mt-2 flex justify-between text-[11px] text-slate-500"><span>Terbayar {fmtRp(totalBayar)}</span><span>Total {fmtRp(totalTagihan)}</span></div>
+      </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Detail pinjaman */}

@@ -24,10 +24,10 @@ export const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
 }
 
 export const LOAN_STATUS_CLASS: Record<LoanStatus, string> = {
-  disbursed: 'bg-sky-100 text-sky-800',
-  active: 'bg-indigo-100 text-indigo-800',
-  completed: 'bg-teal-100 text-teal-800',
-  rejected: 'bg-red-100 text-red-700',
+  disbursed: 'border border-sky-200 bg-sky-50 text-sky-800',
+  active: 'border border-emerald-200 bg-emerald-50 text-emerald-800',
+  completed: 'border border-slate-200 bg-slate-100 text-slate-700',
+  rejected: 'border border-rose-200 bg-rose-50 text-rose-800',
 }
 
 /** warna slice pie chart per status */
@@ -40,9 +40,9 @@ export const LOAN_STATUS_COLOR: Record<LoanStatus, string> = {
 
 /** M23: status keandalan nasabah */
 export const STATUS_KEANDALAN_CLASS: Record<string, string> = {
-  LANCAR: 'bg-emerald-100 text-emerald-800',
-  PERINGATAN: 'bg-amber-100 text-amber-800',
-  MACET: 'bg-rose-100 text-rose-800',
+  LANCAR: 'border border-emerald-200 bg-emerald-50 text-emerald-800',
+  PERINGATAN: 'border border-amber-200 bg-amber-50 text-amber-800',
+  MACET: 'border border-rose-200 bg-rose-50 text-rose-800',
 }
 
 export const KYC_STATUS_CLASS: Record<string, string> = {

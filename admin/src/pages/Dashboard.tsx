@@ -19,6 +19,7 @@ import {
   fetchLoans,
   fetchPayments,
   fetchProfiles,
+  listNasabah,
   subscribeToTables,
 } from '../lib/api'
 import type { Installment, Loan, LoanStatus, Profile } from '../lib/api'
@@ -74,6 +75,7 @@ interface OverdueItem {
 export default function Dashboard() {
   const [loans, setLoans] = useState<Loan[]>([])
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [totalNasabah, setTotalNasabah] = useState(0)
   const [setoranHariIni, setSetoranHariIni] = useState(0)
   const [dueSoon, setDueSoon] = useState<DueItem[]>([])
   const [overdue, setOverdue] = useState<OverdueItem[]>([])
@@ -82,13 +84,15 @@ export default function Dashboard() {
 
   const load = useCallback(async () => {
     try {
-      const [l, p, pay] = await Promise.all([
+      const [l, p, pay, nasabahPage] = await Promise.all([
         fetchLoans(),
         fetchProfiles(),
         fetchPayments(),
+        listNasabah({ page: 1, pageSize: 1 }),
       ])
       setLoans(l)
       setProfiles(p)
+      setTotalNasabah(nasabahPage.total)
 
       const today = todayWIB()
       const hariIni = aggregateSetoran(pay).filter((r) => r.tanggal === today)
@@ -166,14 +170,14 @@ export default function Dashboard() {
     )
     const lancar = nasabah.filter((n) => n.status_keandalan === 'LANCAR').length
     return {
-      nasabah: nasabah.length,
+      nasabah: totalNasabah,
       lancar,
-      persenLancar: nasabah.length ? Math.round((lancar / nasabah.length) * 100) : 100,
+      persenLancar: totalNasabah ? Math.round((lancar / totalNasabah) * 100) : 100,
       activeLoans: activeLoans.length,
       outstanding,
       profit,
     }
-  }, [loans, profiles])
+  }, [loans, profiles, totalNasabah])
 
   const monthly = useMemo(() => {
     const now = new Date()
@@ -217,15 +221,15 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Welcome banner */}
-      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      {/* Page header: satu focal point untuk keputusan owner */}
+      <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-6">
         <div>
-          <h2 className="text-xl font-black text-slate-900 sm:text-2xl">
-            Dashboard Manajemen Pinjaman
+          <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Ringkasan operasional</p>
+          <h2 className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">
+            Pantau bisnis pinjaman
           </h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Pantau peredaran modal, tagihan jatuh tempo, dan arus kas harian secara
-            real-time.
+          <p className="mt-1 max-w-xl text-sm text-slate-500">
+            Periksa modal berjalan, uang masuk, dan nasabah yang perlu ditindak hari ini.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -250,14 +254,14 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* 4 Key Executive Metrics */}
+      {/* KPI utama: dua angka kerja terbesar, dua angka pendukung */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
         <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
           <div className="text-[10px] font-bold uppercase text-slate-400 lg:text-[11px]">
             Total Modal Dipinjamkan
           </div>
           <div className="text-lg font-black text-slate-900 sm:text-xl lg:text-2xl">
-            {fmtRp(stats.outstanding)}
+            <span data-metric>{fmtRp(stats.outstanding)}</span>
           </div>
           <div className="text-[10px] text-slate-500">
             {stats.activeLoans} Pinjaman Berjalan
@@ -267,7 +271,7 @@ export default function Dashboard() {
           <div className="text-[10px] font-bold uppercase text-primary-600 lg:text-[11px]">
             Estimasi Profit Bunga (20%)
           </div>
-          <div className="text-lg font-black text-primary-600 sm:text-xl lg:text-2xl">
+          <div data-metric className="text-lg font-black text-primary-600 sm:text-xl lg:text-2xl">
             {fmtRp(stats.profit)}
           </div>
           <div className="text-[10px] font-medium text-primary-700">
@@ -278,7 +282,7 @@ export default function Dashboard() {
           <div className="text-[10px] font-bold uppercase text-sky-600 lg:text-[11px]">
             Kas Masuk (Pelunasan/Cicil)
           </div>
-          <div className="text-lg font-black text-sky-600 sm:text-xl lg:text-2xl">
+          <div data-metric className="text-lg font-black text-sky-600 sm:text-xl lg:text-2xl">
             {fmtRp(setoranHariIni)}
           </div>
           <div className="text-[10px] text-slate-400">Total Realisasi Pelunasan</div>
@@ -295,6 +299,31 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Action queue: ubah angka risiko menjadi keputusan yang bisa langsung dibuka */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="action-queue-title">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h3 id="action-queue-title" className="text-base font-extrabold text-slate-900">Perlu ditindak hari ini</h3>
+            <p className="mt-1 text-xs text-slate-500">Prioritas operasional berdasarkan jatuh tempo dan tunggakan aktif.</p>
+          </div>
+          <Link to="/loans" className="text-xs font-bold text-primary-700 hover:underline">Buka semua pinjaman →</Link>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <Link to="/loans" className="rounded-xl border border-amber-200 bg-amber-50 p-3 transition hover:border-amber-300">
+            <span className="block text-2xl font-black tabular-nums text-amber-900">{dueSoon.length}</span>
+            <span className="mt-1 block text-xs font-semibold text-amber-800">Mendekati jatuh tempo</span>
+          </Link>
+          <Link to="/loans?filter=overdue" className="rounded-xl border border-rose-200 bg-rose-50 p-3 transition hover:border-rose-300">
+            <span className="block text-2xl font-black tabular-nums text-rose-900">{overdue.length}</span>
+            <span className="mt-1 block text-xs font-semibold text-rose-800">Nasabah menunggak</span>
+          </Link>
+          <Link to="/users" className="col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-3 transition hover:border-slate-300 sm:col-span-1">
+            <span className="block text-2xl font-black tabular-nums text-slate-900">{stats.nasabah}</span>
+            <span className="mt-1 block text-xs font-semibold text-slate-700">Total nasabah terdaftar</span>
+          </Link>
+        </div>
+      </section>
 
       {/* TWO URGENT TABLES */}
       <div className="grid gap-6 lg:grid-cols-2">

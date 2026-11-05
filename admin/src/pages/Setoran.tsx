@@ -7,6 +7,7 @@ import {
   voidPayment,
 } from '../lib/api'
 import type { Payment, SetoranHarianRow } from '../lib/api'
+import { useToast } from '../components/Toast'
 import { errMsg, fmtDate, fmtRp } from '../lib/format'
 
 const PAGE_SIZE = 50
@@ -20,6 +21,7 @@ const PAGE_SIZE = 50
  * walau payment sudah puluhan ribu.
  */
 export default function Setoran() {
+  const { showToast } = useToast()
   const [rows, setRows] = useState<SetoranHarianRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -110,22 +112,35 @@ export default function Setoran() {
       // segarkan rincian yang sedang terbuka
       const cur = rows.find((r) => `${r.tanggal}|${r.pencatatId}` === openDay)
       if (cur) setDetail(await fetchPaymentsForDay(cur.tanggal, cur.pencatatId))
+      showToast('Koreksi setoran berhasil disimpan.', 'success')
     } catch (e) {
-      setActionErr(errMsg(e))
+      const message = errMsg(e)
+      setActionErr(message)
+      showToast(message, 'error')
     } finally {
       setVoiding(null)
     }
   }
 
-  if (loading) return <div className="text-sm text-slate-500">Memuat data…</div>
+  if (loading) {
+    return (
+      <div className="space-y-3" aria-live="polite">
+        <div className="h-24 animate-pulse rounded-2xl bg-slate-200" />
+        <div className="h-12 animate-pulse rounded-2xl bg-slate-200" />
+        <span className="sr-only">Memuat data setoran…</span>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-black tracking-tight text-slate-900">Setoran Harian</h1>
-      <p className="-mt-2 text-sm text-slate-500">
-        Tunai tercatat per admin per hari.
-        Cocokkan dengan uang fisik — kalau beda, tanyakan selisihnya. 🤝
-      </p>
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Keuangan · rekonsiliasi</p>
+        <h1 className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">Setoran Harian</h1>
+        <p className="mt-1 text-sm text-slate-500">
+          Jawab pertanyaan: siapa yang sudah bayar dan berapa yang harus dicocokkan dengan uang fisik?
+        </p>
+      </div>
 
       {error && (
         <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
