@@ -262,65 +262,117 @@ export default function LoanDetail() {
             Jadwal Cicilan ({paidCount}/{installments.length} lunas)
           </div>
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-              <th className="py-2">#</th>
-              <th className="py-2">Jatuh Tempo</th>
-              <th className="py-2">Jumlah</th>
-              <th className="py-2">Terkumpul</th>
-              <th className="py-2">Status</th>
-              <th className="py-2">Dibayar</th>
-              <th className="py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {installments.map((i) => (
-              <tr key={i.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2.5 text-slate-600">{i.seq}</td>
-                <td className="py-2.5 text-slate-700">{fmtDate(i.due_date)}</td>
-                <td className="py-2.5 font-medium text-slate-800">{fmtRp(i.amount)}</td>
-                <td className="py-2.5 text-slate-600">
-                  {fmtRp(Number(i.amount_paid) || 0)}
+        {/* MOBILE: kartu */}
+        <div className="space-y-2.5 lg:hidden">
+          {installments.length === 0 && (
+            <p className="py-4 text-center text-sm text-slate-400">
+              Jadwal cicilan akan muncul setelah pinjaman disetujui
+            </p>
+          )}
+          {installments.map((i) => (
+            <div
+              key={i.id}
+              className="flex items-center justify-between gap-2 rounded-xl border border-slate-200 p-3"
+            >
+              <div className="min-w-0">
+                <div className="text-xs text-slate-500">
+                  #{i.seq} · {fmtDate(i.due_date)}
+                </div>
+                <div className="text-sm font-bold text-slate-800">{fmtRp(i.amount)}</div>
+                <div className="text-[11px] text-slate-500">
+                  Terkumpul {fmtRp(Number(i.amount_paid) || 0)}
                   {i.status !== 'paid' && Number(i.amount_paid) > 0 && (
-                    <span className="text-xs text-slate-400">
+                    <span className="text-slate-400">
                       {' '}
                       (sisa {fmtRp(i.amount - (Number(i.amount_paid) || 0))})
                     </span>
                   )}
-                </td>
-                <td className="py-2.5">
-                  <span className={`rounded-full px-2 py-0.5 text-xs ${INST_CLASS[i.status]}`}>
-                    {INST_LABEL[i.status] ?? i.status}
-                  </span>
-                </td>
-                <td className="py-2.5 text-xs text-slate-500">{fmtDate(i.paid_at)}</td>
-                <td className="py-2.5 text-right">
-                  {i.status !== 'paid' && (
-                    <button
-                      disabled={busy}
-                      onClick={() => {
-                        setPayTarget(i)
-                        setPayAmount(String(i.amount - (Number(i.amount_paid) || 0)))
-                        setPayNote('')
-                      }}
-                      className="text-xs font-medium text-primary-600 hover:underline disabled:opacity-50"
-                    >
-                      💵 Catat Bayar
-                    </button>
-                  )}
-                </td>
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-1.5">
+                <span className={`rounded-full px-2 py-0.5 text-[11px] ${INST_CLASS[i.status]}`}>
+                  {INST_LABEL[i.status] ?? i.status}
+                </span>
+                {i.status !== 'paid' && (
+                  <button
+                    disabled={busy}
+                    onClick={() => {
+                      setPayTarget(i)
+                      setPayAmount(String(i.amount - (Number(i.amount_paid) || 0)))
+                      setPayNote('')
+                    }}
+                    className="rounded-lg bg-primary-600 px-2.5 py-1 text-[11px] font-bold text-white disabled:opacity-50"
+                  >
+                    💵 Bayar
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* DESKTOP: tabel */}
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                <th className="py-2">#</th>
+                <th className="py-2">Jatuh Tempo</th>
+                <th className="py-2">Jumlah</th>
+                <th className="py-2">Terkumpul</th>
+                <th className="py-2">Status</th>
+                <th className="py-2">Dibayar</th>
+                <th className="py-2" />
               </tr>
-            ))}
-            {installments.length === 0 && (
-              <tr>
-                <td colSpan={7} className="py-6 text-center text-slate-400">
-                  Jadwal cicilan akan muncul setelah pinjaman disetujui
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {installments.map((i) => (
+                <tr key={i.id} className="border-b border-slate-100 last:border-0">
+                  <td className="py-2.5 text-slate-600">{i.seq}</td>
+                  <td className="py-2.5 text-slate-700">{fmtDate(i.due_date)}</td>
+                  <td className="py-2.5 font-medium text-slate-800">{fmtRp(i.amount)}</td>
+                  <td className="py-2.5 text-slate-600">
+                    {fmtRp(Number(i.amount_paid) || 0)}
+                    {i.status !== 'paid' && Number(i.amount_paid) > 0 && (
+                      <span className="text-xs text-slate-400">
+                        {' '}
+                        (sisa {fmtRp(i.amount - (Number(i.amount_paid) || 0))})
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-2.5">
+                    <span className={`rounded-full px-2 py-0.5 text-xs ${INST_CLASS[i.status]}`}>
+                      {INST_LABEL[i.status] ?? i.status}
+                    </span>
+                  </td>
+                  <td className="py-2.5 text-xs text-slate-500">{fmtDate(i.paid_at)}</td>
+                  <td className="py-2.5 text-right">
+                    {i.status !== 'paid' && (
+                      <button
+                        disabled={busy}
+                        onClick={() => {
+                          setPayTarget(i)
+                          setPayAmount(String(i.amount - (Number(i.amount_paid) || 0)))
+                          setPayNote('')
+                        }}
+                        className="text-xs font-medium text-primary-600 hover:underline disabled:opacity-50"
+                      >
+                        💵 Catat Bayar
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {installments.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="py-6 text-center text-slate-400">
+                    Jadwal cicilan akan muncul setelah pinjaman disetujui
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Modal catat bayar tunai (v3.1: admin terima langsung, tanpa petugas) */}

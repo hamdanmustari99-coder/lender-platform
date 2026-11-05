@@ -246,42 +246,71 @@ export default function UserDetail() {
               Total: <span className="font-semibold text-slate-700">{fmtRp(totalLoan)}</span>
             </div>
           </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="py-2">Jumlah</th>
-                <th className="py-2">Tenor</th>
-                <th className="py-2">Status</th>
-                <th className="py-2">Tanggal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loans.map((l) => (
-                <tr key={l.id} className="border-b border-slate-100 last:border-0">
-                  <td className="py-2.5 font-medium text-slate-800">{fmtRp(l.amount)}</td>
-                  <td className="py-2.5 text-slate-600">{l.tenor_months} bln</td>
-                  <td className="py-2.5">
-                    <Link
-                      to={`/loans/${l.id}`}
-                      className={`rounded-full px-2 py-0.5 text-xs ${LOAN_STATUS_CLASS[l.status]} hover:opacity-80`}
-                    >
-                      {LOAN_STATUS_LABEL[l.status]}
-                    </Link>
-                  </td>
-                  <td className="py-2.5 text-xs text-slate-500">
-                    {fmtDate(l.created_at)}
-                  </td>
+          {/* MOBILE: kartu */}
+          <div className="space-y-2.5 lg:hidden">
+            {loans.length === 0 && (
+              <p className="py-4 text-center text-sm text-slate-400">Belum ada pinjaman</p>
+            )}
+            {loans.map((l) => (
+              <Link
+                key={l.id}
+                to={`/loans/${l.id}`}
+                className="block rounded-xl border border-slate-200 p-3 active:scale-[0.99]"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-800">{fmtRp(l.amount)}</span>
+                  <span
+                    className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${LOAN_STATUS_CLASS[l.status]}`}
+                  >
+                    {LOAN_STATUS_LABEL[l.status]}
+                  </span>
+                </div>
+                <div className="mt-0.5 text-xs text-slate-500">
+                  {l.tenor_months} bln • {fmtDate(l.created_at)}
+                </div>
+              </Link>
+            ))}
+          </div>
+
+          {/* DESKTOP: tabel */}
+          <div className="hidden overflow-x-auto lg:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                  <th className="py-2">Jumlah</th>
+                  <th className="py-2">Tenor</th>
+                  <th className="py-2">Status</th>
+                  <th className="py-2">Tanggal</th>
                 </tr>
-              ))}
-              {loans.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="py-6 text-center text-slate-400">
-                    Belum ada pinjaman
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {loans.map((l) => (
+                  <tr key={l.id} className="border-b border-slate-100 last:border-0">
+                    <td className="py-2.5 font-medium text-slate-800">{fmtRp(l.amount)}</td>
+                    <td className="py-2.5 text-slate-600">{l.tenor_months} bln</td>
+                    <td className="py-2.5">
+                      <Link
+                        to={`/loans/${l.id}`}
+                        className={`rounded-full px-2 py-0.5 text-xs ${LOAN_STATUS_CLASS[l.status]} hover:opacity-80`}
+                      >
+                        {LOAN_STATUS_LABEL[l.status]}
+                      </Link>
+                    </td>
+                    <td className="py-2.5 text-xs text-slate-500">
+                      {fmtDate(l.created_at)}
+                    </td>
+                  </tr>
+                ))}
+                {loans.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-6 text-center text-slate-400">
+                      Belum ada pinjaman
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -367,43 +396,85 @@ export default function UserDetail() {
                 {list.length === 0 ? (
                   <div className="text-xs text-slate-400">Belum ada cicilan</div>
                 ) : (
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-slate-100 text-left text-slate-500">
-                        <th className="py-1 pr-2">#</th>
-                        <th className="py-1 pr-2">Jatuh Tempo</th>
-                        <th className="py-1 pr-2">Nominal</th>
-                        <th className="py-1 pr-2">Dibayar</th>
-                        <th className="py-1 pr-2">Status</th>
-                        <th className="py-1">Ket.</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <>
+                    {/* MOBILE: baris ringkas */}
+                    <div className="space-y-1.5 lg:hidden">
                       {list.map((c) => {
                         const telat = isTelat(c)
                         return (
-                          <tr key={c.id} className="border-b border-slate-50 last:border-0">
-                            <td className="py-1.5 pr-2 text-slate-600">{c.seq}</td>
-                            <td className="py-1.5 pr-2 text-slate-600">{fmtDate(c.due_date)}</td>
-                            <td className="py-1.5 pr-2 text-slate-800">{fmtRp(c.amount)}</td>
-                            <td className="py-1.5 pr-2 text-slate-600">
-                              {c.paid_at ? `${fmtRp(c.amount_paid)} (${fmtDate(c.paid_at)})` : '—'}
-                            </td>
-                            <td className="py-1.5 pr-2 text-slate-600">{c.status}</td>
-                            <td className="py-1.5">
-                              {telat ? (
+                          <div
+                            key={c.id}
+                            className="flex items-center justify-between gap-2 text-xs"
+                          >
+                            <span className="text-slate-500">
+                              #{c.seq} · {fmtDate(c.due_date)}
+                            </span>
+                            <span className="flex items-center gap-2">
+                              <span className="font-semibold text-slate-800">
+                                {fmtRp(c.amount)}
+                              </span>
+                              {c.paid_at ? (
+                                <span className="text-primary-600">
+                                  ✓ {fmtRp(c.amount_paid)}
+                                </span>
+                              ) : telat ? (
                                 <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">
                                   Telat
                                 </span>
                               ) : (
-                                <span className="text-slate-400">—</span>
+                                <span className="text-slate-400">{c.status}</span>
                               )}
-                            </td>
-                          </tr>
+                            </span>
+                          </div>
                         )
                       })}
-                    </tbody>
-                  </table>
+                    </div>
+
+                    {/* DESKTOP: tabel */}
+                    <div className="hidden overflow-x-auto lg:block">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-left text-slate-500">
+                            <th className="py-1 pr-2">#</th>
+                            <th className="py-1 pr-2">Jatuh Tempo</th>
+                            <th className="py-1 pr-2">Nominal</th>
+                            <th className="py-1 pr-2">Dibayar</th>
+                            <th className="py-1 pr-2">Status</th>
+                            <th className="py-1">Ket.</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {list.map((c) => {
+                            const telat = isTelat(c)
+                            return (
+                              <tr key={c.id} className="border-b border-slate-50 last:border-0">
+                                <td className="py-1.5 pr-2 text-slate-600">{c.seq}</td>
+                                <td className="py-1.5 pr-2 text-slate-600">
+                                  {fmtDate(c.due_date)}
+                                </td>
+                                <td className="py-1.5 pr-2 text-slate-800">{fmtRp(c.amount)}</td>
+                                <td className="py-1.5 pr-2 text-slate-600">
+                                  {c.paid_at
+                                    ? `${fmtRp(c.amount_paid)} (${fmtDate(c.paid_at)})`
+                                    : '—'}
+                                </td>
+                                <td className="py-1.5 pr-2 text-slate-600">{c.status}</td>
+                                <td className="py-1.5">
+                                  {telat ? (
+                                    <span className="rounded-full bg-red-100 px-2 py-0.5 font-medium text-red-700">
+                                      Telat
+                                    </span>
+                                  ) : (
+                                    <span className="text-slate-400">—</span>
+                                  )}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             )

@@ -228,16 +228,16 @@ export default function Dashboard() {
             real-time.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link
             to="/users/new"
-            className="rounded-xl bg-slate-900 px-4 py-2 text-xs font-bold text-white transition hover:bg-slate-800"
+            className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-center text-xs font-bold text-white transition hover:bg-slate-800 sm:flex-none sm:px-4"
           >
             + Registrasi Nasabah
           </Link>
           <Link
-            to="/loans"
-            className="rounded-xl bg-primary-600 px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:bg-primary-700"
+            to="/loans/new"
+            className="flex-1 rounded-xl bg-primary-600 px-3 py-2.5 text-center text-xs font-bold text-white shadow-sm transition hover:bg-primary-700 sm:flex-none sm:px-4"
           >
             + Pinjaman Baru
           </Link>
@@ -251,43 +251,43 @@ export default function Dashboard() {
       )}
 
       {/* 4 Key Executive Metrics */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-[11px] font-bold uppercase text-slate-400">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+          <div className="text-[10px] font-bold uppercase text-slate-400 lg:text-[11px]">
             Total Modal Dipinjamkan
           </div>
-          <div className="text-xl font-black text-slate-900 sm:text-2xl">
+          <div className="text-lg font-black text-slate-900 sm:text-xl lg:text-2xl">
             {fmtRp(stats.outstanding)}
           </div>
           <div className="text-[10px] text-slate-500">
             {stats.activeLoans} Pinjaman Berjalan
           </div>
         </div>
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-[11px] font-bold uppercase text-primary-600">
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+          <div className="text-[10px] font-bold uppercase text-primary-600 lg:text-[11px]">
             Estimasi Profit Bunga (20%)
           </div>
-          <div className="text-xl font-black text-primary-600 sm:text-2xl">
+          <div className="text-lg font-black text-primary-600 sm:text-xl lg:text-2xl">
             {fmtRp(stats.profit)}
           </div>
           <div className="text-[10px] font-medium text-primary-700">
             Bunga Flat 20% Terkunci
           </div>
         </div>
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-[11px] font-bold uppercase text-sky-600">
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+          <div className="text-[10px] font-bold uppercase text-sky-600 lg:text-[11px]">
             Kas Masuk (Pelunasan/Cicil)
           </div>
-          <div className="text-xl font-black text-sky-600 sm:text-2xl">
+          <div className="text-lg font-black text-sky-600 sm:text-xl lg:text-2xl">
             {fmtRp(setoranHariIni)}
           </div>
           <div className="text-[10px] text-slate-400">Total Realisasi Pelunasan</div>
         </div>
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="text-[11px] font-bold uppercase text-amber-600">
+        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+          <div className="text-[10px] font-bold uppercase text-amber-600 lg:text-[11px]">
             Total Nasabah Terdaftar
           </div>
-          <div className="text-xl font-black text-slate-900 sm:text-2xl">
+          <div className="text-lg font-black text-slate-900 sm:text-xl lg:text-2xl">
             {stats.nasabah} Orang
           </div>
           <div className="text-[10px] font-semibold text-amber-600">
@@ -311,89 +311,163 @@ export default function Dashboard() {
               {dueSoon.length} Nasabah
             </span>
           </div>
-          <div className="flex-1 overflow-x-auto p-4">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-slate-100 font-bold text-slate-400">
-                <tr>
-                  <th className="pb-2">Nasabah</th>
-                  <th className="pb-2">Tempo</th>
-                  <th className="pb-2 text-right">Tagihan</th>
-                  <th className="pb-2 text-center">Aksi Cepat</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {dueSoon.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="py-4 text-center text-slate-400">
-                      Tidak ada nasabah yang mendekati jatuh tempo (H-3 s/d Hari H).
-                    </td>
-                  </tr>
-                )}
-                {dueSoon.map((d) => {
-                  const rumah = mapsLink(d.nasabah.home_lat, d.nasabah.home_lng)
-                  const sisa = d.installment.amount - (Number(d.installment.amount_paid) || 0)
-                  return (
-                    <tr key={d.installment.id}>
-                      <td className="py-3 font-semibold text-slate-900">
-                        <Link to={`/loans/${d.loan.id}`} className="hover:underline">
-                          {d.nasabah.full_name}
-                        </Link>
-                        <br />
-                        <span className="text-[10px] text-slate-400">
-                          {d.loan.frequency === 'weekly' ? 'Mingguan' : 'Bulanan'} • cicilan #
-                          {d.installment.seq}
-                        </span>
-                      </td>
-                      <td className="py-3">
-                        <span
-                          className={`rounded px-2 py-0.5 text-[10px] font-bold ${
-                            d.daysLeft === 0
-                              ? 'bg-rose-100 text-rose-800'
-                              : 'bg-amber-100 text-amber-800'
-                          }`}
-                        >
-                          {d.daysLeft === 0 ? 'Hari Ini (Hari H)' : `H-${d.daysLeft}`}
-                        </span>
-                        <br />
-                        <span className="text-[10px] text-slate-400">
-                          {fmtDate(d.installment.due_date)}
-                        </span>
-                      </td>
-                      <td className="py-3 text-right font-black text-slate-900">
+          <div className="flex-1 p-4">
+            {/* MOBILE: kartu */}
+            <div className="space-y-3 lg:hidden">
+              {dueSoon.length === 0 && (
+                <p className="py-2 text-center text-xs text-slate-400">
+                  Tidak ada nasabah yang mendekati jatuh tempo (H-3 s/d Hari H).
+                </p>
+              )}
+              {dueSoon.map((d) => {
+                const rumah = mapsLink(d.nasabah.home_lat, d.nasabah.home_lng)
+                const sisa = d.installment.amount - (Number(d.installment.amount_paid) || 0)
+                return (
+                  <div
+                    key={d.installment.id}
+                    className="rounded-xl border border-slate-200 bg-white p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <Link
+                        to={`/loans/${d.loan.id}`}
+                        className="min-w-0 text-sm font-bold text-slate-900 hover:underline"
+                      >
+                        {d.nasabah.full_name}
+                      </Link>
+                      <span
+                        className={`shrink-0 rounded px-2 py-0.5 text-[10px] font-bold ${
+                          d.daysLeft === 0
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-100 text-amber-800'
+                        }`}
+                      >
+                        {d.daysLeft === 0 ? 'Hari H' : `H-${d.daysLeft}`}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-slate-400">
+                      {d.loan.frequency === 'weekly' ? 'Mingguan' : 'Bulanan'} • cicilan #
+                      {d.installment.seq} • {fmtDate(d.installment.due_date)}
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="text-base font-black text-slate-900">
                         {fmtRp(sisa)}
-                      </td>
-                      <td className="py-3">
-                        <div className="flex justify-center gap-1">
+                      </span>
+                      <div className="flex gap-1">
+                        <a
+                          href={waLink(
+                            d.nasabah.phone,
+                            d.nasabah.full_name,
+                            sisa,
+                            d.installment.due_date.slice(0, 10),
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded bg-primary-100 px-2.5 py-1.5 text-[10px] font-bold text-primary-800"
+                        >
+                          💬 WA
+                        </a>
+                        {rumah && (
                           <a
-                            href={waLink(
-                              d.nasabah.phone,
-                              d.nasabah.full_name,
-                              sisa,
-                              d.installment.due_date.slice(0, 10),
-                            )}
+                            href={rumah}
                             target="_blank"
                             rel="noreferrer"
-                            className="rounded bg-primary-100 px-2 py-1 text-[10px] font-bold text-primary-800 transition hover:bg-primary-200"
+                            className="rounded bg-sky-100 px-2.5 py-1.5 text-[10px] font-bold text-sky-800"
                           >
-                            💬 WA
+                            📍 Rute
                           </a>
-                          {rumah && (
-                            <a
-                              href={rumah}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded bg-sky-100 px-2 py-1 text-[10px] font-bold text-sky-800 transition hover:bg-sky-200"
-                            >
-                              📍 Rute
-                            </a>
-                          )}
-                        </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* DESKTOP: tabel */}
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-100 font-bold text-slate-400">
+                  <tr>
+                    <th className="pb-2">Nasabah</th>
+                    <th className="pb-2">Tempo</th>
+                    <th className="pb-2 text-right">Tagihan</th>
+                    <th className="pb-2 text-center">Aksi Cepat</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {dueSoon.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-4 text-center text-slate-400">
+                        Tidak ada nasabah yang mendekati jatuh tempo (H-3 s/d Hari H).
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  )}
+                  {dueSoon.map((d) => {
+                    const rumah = mapsLink(d.nasabah.home_lat, d.nasabah.home_lng)
+                    const sisa = d.installment.amount - (Number(d.installment.amount_paid) || 0)
+                    return (
+                      <tr key={d.installment.id}>
+                        <td className="py-3 font-semibold text-slate-900">
+                          <Link to={`/loans/${d.loan.id}`} className="hover:underline">
+                            {d.nasabah.full_name}
+                          </Link>
+                          <br />
+                          <span className="text-[10px] text-slate-400">
+                            {d.loan.frequency === 'weekly' ? 'Mingguan' : 'Bulanan'} • cicilan #
+                            {d.installment.seq}
+                          </span>
+                        </td>
+                        <td className="py-3">
+                          <span
+                            className={`rounded px-2 py-0.5 text-[10px] font-bold ${
+                              d.daysLeft === 0
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {d.daysLeft === 0 ? 'Hari Ini (Hari H)' : `H-${d.daysLeft}`}
+                          </span>
+                          <br />
+                          <span className="text-[10px] text-slate-400">
+                            {fmtDate(d.installment.due_date)}
+                          </span>
+                        </td>
+                        <td className="py-3 text-right font-black text-slate-900">
+                          {fmtRp(sisa)}
+                        </td>
+                        <td className="py-3">
+                          <div className="flex justify-center gap-1">
+                            <a
+                              href={waLink(
+                                d.nasabah.phone,
+                                d.nasabah.full_name,
+                                sisa,
+                                d.installment.due_date.slice(0, 10),
+                              )}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded bg-primary-100 px-2 py-1 text-[10px] font-bold text-primary-800 transition hover:bg-primary-200"
+                            >
+                              💬 WA
+                            </a>
+                            {rumah && (
+                              <a
+                                href={rumah}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded bg-sky-100 px-2 py-1 text-[10px] font-bold text-sky-800 transition hover:bg-sky-200"
+                              >
+                                📍 Rute
+                              </a>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -410,83 +484,155 @@ export default function Dashboard() {
               {overdue.length} Nasabah
             </span>
           </div>
-          <div className="flex-1 overflow-x-auto p-4">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-slate-100 font-bold text-slate-400">
-                <tr>
-                  <th className="pb-2">Nasabah</th>
-                  <th className="pb-2">Keterlambatan</th>
-                  <th className="pb-2 text-right">Tunggakan</th>
-                  <th className="pb-2 text-center">Aksi Lapangan</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {overdue.length === 0 && (
-                  <tr>
-                    <td colSpan={4} className="py-4 text-center text-slate-400">
-                      Semua nasabah membayar tepat waktu (Tidak ada penunggak).
-                    </td>
-                  </tr>
-                )}
-                {overdue.map((o) => {
-                  const rumah = mapsLink(o.nasabah.home_lat, o.nasabah.home_lng)
-                  const kantor = mapsLink(o.nasabah.office_lat, o.nasabah.office_lng)
-                  return (
-                    <tr key={o.loan.id}>
-                      <td className="py-3 font-semibold text-slate-900">
-                        <Link to={`/loans/${o.loan.id}`} className="hover:underline">
-                          {o.nasabah.full_name}
-                        </Link>
-                        <br />
-                        <span className="text-[10px] text-slate-400">
-                          {o.installments.length} cicilan telat
-                        </span>
-                      </td>
-                      <td className="py-3">
-                        <span className="rounded bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-800">
-                          Telat {o.lateDays} Hari
-                        </span>
-                      </td>
-                      <td className="py-3 text-right font-black text-rose-600">
+          <div className="flex-1 p-4">
+            {/* MOBILE: kartu */}
+            <div className="space-y-3 lg:hidden">
+              {overdue.length === 0 && (
+                <p className="py-2 text-center text-xs text-slate-400">
+                  Semua nasabah membayar tepat waktu (Tidak ada penunggak).
+                </p>
+              )}
+              {overdue.map((o) => {
+                const rumah = mapsLink(o.nasabah.home_lat, o.nasabah.home_lng)
+                const kantor = mapsLink(o.nasabah.office_lat, o.nasabah.office_lng)
+                return (
+                  <div
+                    key={o.loan.id}
+                    className="rounded-xl border border-slate-200 bg-white p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <Link
+                        to={`/loans/${o.loan.id}`}
+                        className="min-w-0 text-sm font-bold text-slate-900 hover:underline"
+                      >
+                        {o.nasabah.full_name}
+                      </Link>
+                      <span className="shrink-0 rounded bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-800">
+                        Telat {o.lateDays} Hari
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-slate-400">
+                      {o.installments.length} cicilan telat
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className="text-base font-black text-rose-600">
                         {fmtRp(o.totalTunggakan)}
-                      </td>
-                      <td className="py-3">
-                        <div className="flex justify-center gap-1">
-                          {rumah ? (
-                            <a
-                              href={rumah}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded bg-rose-600 px-2 py-1 text-[10px] font-bold text-white shadow-sm transition hover:bg-rose-700"
-                            >
-                              🚨 Rumah
-                            </a>
-                          ) : (
-                            <span className="rounded bg-slate-100 px-2 py-1 text-[10px] text-slate-400">
-                              Rumah —
-                            </span>
-                          )}
-                          {kantor ? (
-                            <a
-                              href={kantor}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded bg-slate-800 px-2 py-1 text-[10px] font-bold text-white transition hover:bg-slate-900"
-                            >
-                              🏢 Kantor
-                            </a>
-                          ) : (
-                            <span className="rounded bg-slate-100 px-2 py-1 text-[10px] text-slate-400">
-                              Kantor —
-                            </span>
-                          )}
-                        </div>
+                      </span>
+                      <div className="flex gap-1">
+                        {rumah ? (
+                          <a
+                            href={rumah}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded bg-rose-600 px-2.5 py-1.5 text-[10px] font-bold text-white"
+                          >
+                            🚨 Rumah
+                          </a>
+                        ) : (
+                          <span className="rounded bg-slate-100 px-2.5 py-1.5 text-[10px] text-slate-400">
+                            Rumah —
+                          </span>
+                        )}
+                        {kantor ? (
+                          <a
+                            href={kantor}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded bg-slate-800 px-2.5 py-1.5 text-[10px] font-bold text-white"
+                          >
+                            🏢 Kantor
+                          </a>
+                        ) : (
+                          <span className="rounded bg-slate-100 px-2.5 py-1.5 text-[10px] text-slate-400">
+                            Kantor —
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            {/* DESKTOP: tabel */}
+            <div className="hidden overflow-x-auto lg:block">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-100 font-bold text-slate-400">
+                  <tr>
+                    <th className="pb-2">Nasabah</th>
+                    <th className="pb-2">Keterlambatan</th>
+                    <th className="pb-2 text-right">Tunggakan</th>
+                    <th className="pb-2 text-center">Aksi Lapangan</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {overdue.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-4 text-center text-slate-400">
+                        Semua nasabah membayar tepat waktu (Tidak ada penunggak).
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  )}
+                  {overdue.map((o) => {
+                    const rumah = mapsLink(o.nasabah.home_lat, o.nasabah.home_lng)
+                    const kantor = mapsLink(o.nasabah.office_lat, o.nasabah.office_lng)
+                    return (
+                      <tr key={o.loan.id}>
+                        <td className="py-3 font-semibold text-slate-900">
+                          <Link to={`/loans/${o.loan.id}`} className="hover:underline">
+                            {o.nasabah.full_name}
+                          </Link>
+                          <br />
+                          <span className="text-[10px] text-slate-400">
+                            {o.installments.length} cicilan telat
+                          </span>
+                        </td>
+                        <td className="py-3">
+                          <span className="rounded bg-rose-100 px-2 py-0.5 text-[10px] font-black text-rose-800">
+                            Telat {o.lateDays} Hari
+                          </span>
+                        </td>
+                        <td className="py-3 text-right font-black text-rose-600">
+                          {fmtRp(o.totalTunggakan)}
+                        </td>
+                        <td className="py-3">
+                          <div className="flex justify-center gap-1">
+                            {rumah ? (
+                              <a
+                                href={rumah}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded bg-rose-600 px-2 py-1 text-[10px] font-bold text-white shadow-sm transition hover:bg-rose-700"
+                              >
+                                🚨 Rumah
+                              </a>
+                            ) : (
+                              <span className="rounded bg-slate-100 px-2 py-1 text-[10px] text-slate-400">
+                                Rumah —
+                              </span>
+                            )}
+                            {kantor ? (
+                              <a
+                                href={kantor}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded bg-slate-800 px-2 py-1 text-[10px] font-bold text-white transition hover:bg-slate-900"
+                              >
+                                🏢 Kantor
+                              </a>
+                            ) : (
+                              <span className="rounded bg-slate-100 px-2 py-1 text-[10px] text-slate-400">
+                                Kantor —
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
@@ -549,52 +695,87 @@ export default function Dashboard() {
         <div className="mb-3 text-sm font-semibold text-slate-700">
           Pinjaman Terbaru
         </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-              <th className="py-2">Nasabah</th>
-              <th className="py-2">Jumlah</th>
-              <th className="py-2">Tenor</th>
-              <th className="py-2">Status</th>
-              <th className="py-2" />
-            </tr>
-          </thead>
-          <tbody>
-            {recent.map((l) => (
-              <tr key={l.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2.5 text-slate-700">
+
+        {/* MOBILE: kartu */}
+        <div className="space-y-2.5 lg:hidden">
+          {recent.length === 0 && (
+            <p className="py-4 text-center text-sm text-slate-400">Belum ada pinjaman</p>
+          )}
+          {recent.map((l) => (
+            <Link
+              key={l.id}
+              to={`/loans/${l.id}`}
+              className="block rounded-xl border border-slate-200 p-3 active:scale-[0.99]"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <span className="min-w-0 truncate text-sm font-bold text-slate-800">
                   {l.profiles?.full_name || l.user_id.slice(0, 8)}
-                </td>
-                <td className="py-2.5 font-medium text-slate-800">{fmtRp(l.amount)}</td>
-                <td className="py-2.5 text-slate-600">
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${LOAN_STATUS_CLASS[l.status]}`}
+                >
+                  {LOAN_STATUS_LABEL[l.status]}
+                </span>
+              </div>
+              <div className="mt-1 flex items-baseline justify-between gap-2">
+                <span className="text-base font-black text-slate-900">{fmtRp(l.amount)}</span>
+                <span className="text-xs text-slate-500">
                   {l.tenor_months} {l.frequency === 'weekly' ? 'mgg' : 'bln'}
-                </td>
-                <td className="py-2.5">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs ${LOAN_STATUS_CLASS[l.status]}`}
-                  >
-                    {LOAN_STATUS_LABEL[l.status]}
-                  </span>
-                </td>
-                <td className="py-2.5 text-right">
-                  <Link
-                    to={`/loans/${l.id}`}
-                    className="text-xs font-medium text-primary-600 hover:underline"
-                  >
-                    Detail →
-                  </Link>
-                </td>
+                </span>
+              </div>
+            </Link>
+          ))}
+        </div>
+
+        {/* DESKTOP: tabel */}
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                <th className="py-2">Nasabah</th>
+                <th className="py-2">Jumlah</th>
+                <th className="py-2">Tenor</th>
+                <th className="py-2">Status</th>
+                <th className="py-2" />
               </tr>
-            ))}
-            {recent.length === 0 && (
-              <tr>
-                <td colSpan={5} className="py-6 text-center text-slate-400">
-                  Belum ada pinjaman
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {recent.map((l) => (
+                <tr key={l.id} className="border-b border-slate-100 last:border-0">
+                  <td className="py-2.5 text-slate-700">
+                    {l.profiles?.full_name || l.user_id.slice(0, 8)}
+                  </td>
+                  <td className="py-2.5 font-medium text-slate-800">{fmtRp(l.amount)}</td>
+                  <td className="py-2.5 text-slate-600">
+                    {l.tenor_months} {l.frequency === 'weekly' ? 'mgg' : 'bln'}
+                  </td>
+                  <td className="py-2.5">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs ${LOAN_STATUS_CLASS[l.status]}`}
+                    >
+                      {LOAN_STATUS_LABEL[l.status]}
+                    </span>
+                  </td>
+                  <td className="py-2.5 text-right">
+                    <Link
+                      to={`/loans/${l.id}`}
+                      className="text-xs font-medium text-primary-600 hover:underline"
+                    >
+                      Detail →
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+              {recent.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-slate-400">
+                    Belum ada pinjaman
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Legenda status keandalan */}

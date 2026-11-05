@@ -136,31 +136,34 @@ export default function Setoran() {
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          type="date"
-          value={filter}
-          onChange={(e) => {
-            setFilter(e.target.value)
-            setPage(1)
-            setOpenDay(null)
-          }}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
-        />
-        {filter && (
-          <button
-            onClick={() => {
-              setFilter('')
+      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="flex gap-2">
+          <input
+            type="date"
+            value={filter}
+            onChange={(e) => {
+              setFilter(e.target.value)
               setPage(1)
               setOpenDay(null)
             }}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
-          >
-            Tampilkan semua
-          </button>
-        )}
-        <div className="ml-auto text-sm text-slate-600">
-          Total tampil: <span className="font-bold text-primary-700">{fmtRp(grandTotal)}</span>
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none sm:flex-none"
+          />
+          {filter && (
+            <button
+              onClick={() => {
+                setFilter('')
+                setPage(1)
+                setOpenDay(null)
+              }}
+              className="shrink-0 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-600 hover:bg-slate-50"
+            >
+              Semua
+            </button>
+          )}
+        </div>
+        <div className="text-sm text-slate-600 sm:ml-auto">
+          Total tampil:{' '}
+          <span className="font-bold text-primary-700">{fmtRp(grandTotal)}</span>
         </div>
       </div>
 
@@ -169,28 +172,124 @@ export default function Setoran() {
           Belum ada setoran tercatat
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
-                <th className="px-4 py-3">Tanggal</th>
-                <th className="px-4 py-3">Pencatat</th>
-                <th className="px-4 py-3">Transaksi</th>
-                <th className="px-4 py-3">Total Tunai</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const key = `${r.tanggal}|${r.pencatatId}`
-                const open = openDay === key
-                return (
-                  <>
+        <>
+          {/* ---------- MOBILE: kartu per hari/pencatat ---------- */}
+          <div className="space-y-3 lg:hidden">
+            {rows.map((r) => {
+              const key = `${r.tanggal}|${r.pencatatId}`
+              const open = openDay === key
+              return (
+                <div
+                  key={key}
+                  className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                >
+                  <button
+                    onClick={() => void toggleDay(r)}
+                    className="w-full px-4 py-3 text-left active:bg-slate-50"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-slate-800">
+                          {r.pencatatNama}
+                        </div>
+                        <div className="text-xs text-slate-500">{fmtDate(r.tanggal)}</div>
+                      </div>
+                      <span className="shrink-0 text-sm font-bold text-primary-700">
+                        {fmtRp(r.total)}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between text-xs text-slate-500">
+                      <span>{r.jumlah}x transaksi</span>
+                      <span className="font-medium text-primary-600">
+                        {open ? 'Tutup ▲' : 'Rincian ▼'}
+                      </span>
+                    </div>
+                  </button>
+
+                  {open && (
+                    <div className="border-t border-slate-100 bg-slate-50 px-4 py-3">
+                      {detailLoading ? (
+                        <div className="text-xs text-slate-400">Memuat rincian…</div>
+                      ) : detail.length === 0 ? (
+                        <div className="text-xs text-slate-400">Tidak ada transaksi</div>
+                      ) : (
+                        <div className="space-y-2">
+                          {detail.map((p) => (
+                            <div
+                              key={p.id}
+                              className="flex items-start justify-between gap-2 text-xs"
+                            >
+                              <span
+                                className={
+                                  p.amount < 0 ? 'text-red-600' : 'text-slate-600'
+                                }
+                              >
+                                {new Date(p.paid_at).toLocaleTimeString('id-ID', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}{' '}
+                                • {p.nasabah?.full_name || '—'}
+                                {p.note ? ` • “${p.note}”` : ''}
+                              </span>
+                              <span className="flex shrink-0 items-center gap-2">
+                                <span
+                                  className={`font-medium ${p.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}
+                                >
+                                  {fmtRp(p.amount)}
+                                </span>
+                                {p.amount > 0 && (
+                                  <button
+                                    disabled={voiding === p.id}
+                                    onClick={() => {
+                                      setActionErr(null)
+                                      setVoidReason('')
+                                      setVoidCorrect('')
+                                      setVoidTarget(p)
+                                    }}
+                                    className="font-medium text-amber-600 hover:underline disabled:opacity-50"
+                                    title="Koreksi (reversal beraudit)"
+                                  >
+                                    Koreksi
+                                  </button>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {/* ---------- DESKTOP: tabel ---------- */}
+          <div className="hidden overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm lg:block">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
+                  <th className="px-4 py-3">Tanggal</th>
+                  <th className="px-4 py-3">Pencatat</th>
+                  <th className="px-4 py-3">Transaksi</th>
+                  <th className="px-4 py-3">Total Tunai</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const key = `${r.tanggal}|${r.pencatatId}`
+                  const open = openDay === key
+                  return (
                     <tr key={key} className="border-b border-slate-100">
                       <td className="px-4 py-3 text-slate-700">{fmtDate(r.tanggal)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800">{r.pencatatNama}</td>
+                      <td className="px-4 py-3 font-medium text-slate-800">
+                        {r.pencatatNama}
+                      </td>
                       <td className="px-4 py-3 text-slate-600">{r.jumlah}x</td>
-                      <td className="px-4 py-3 font-bold text-primary-700">{fmtRp(r.total)}</td>
+                      <td className="px-4 py-3 font-bold text-primary-700">
+                        {fmtRp(r.total)}
+                      </td>
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => void toggleDay(r)}
@@ -200,67 +299,12 @@ export default function Setoran() {
                         </button>
                       </td>
                     </tr>
-                    {open && (
-                      <tr key={`${key}-d`} className="bg-slate-50">
-                        <td colSpan={5} className="px-6 py-3">
-                          {detailLoading ? (
-                            <div className="text-xs text-slate-400">Memuat rincian…</div>
-                          ) : detail.length === 0 ? (
-                            <div className="text-xs text-slate-400">Tidak ada transaksi</div>
-                          ) : (
-                            <div className="space-y-1">
-                              {detail.map((p) => (
-                                <div
-                                  key={p.id}
-                                  className="flex items-center justify-between gap-2 text-xs"
-                                >
-                                  <span
-                                    className={
-                                      p.amount < 0 ? 'text-red-600' : 'text-slate-600'
-                                    }
-                                  >
-                                    {new Date(p.paid_at).toLocaleTimeString('id-ID', {
-                                      hour: '2-digit',
-                                      minute: '2-digit',
-                                    })}{' '}
-                                    • {p.nasabah?.full_name || '—'}
-                                    {p.note ? ` • “${p.note}”` : ''}
-                                  </span>
-                                  <span className="flex items-center gap-2">
-                                    <span
-                                      className={`font-medium ${p.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}
-                                    >
-                                      {fmtRp(p.amount)}
-                                    </span>
-                                    {p.amount > 0 && (
-                                      <button
-                                        disabled={voiding === p.id}
-                                        onClick={() => {
-                                          setActionErr(null)
-                                          setVoidReason('')
-                                          setVoidCorrect('')
-                                          setVoidTarget(p)
-                                        }}
-                                        className="font-medium text-amber-600 hover:underline disabled:opacity-50"
-                                        title="Koreksi (reversal beraudit)"
-                                      >
-                                        Koreksi
-                                      </button>
-                                    )}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )}
-                  </>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
       {totalPages > 1 && (

@@ -25,6 +25,15 @@
   html {
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    /* Cegah zoom otomatis iOS saat fokus input (font-size < 16px) */
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+  body {
+    /* Guard global: jangan sampai ada elemen yang bikin horizontal scroll
+       di layar HP. Elemen yang memang lebar (tabel desktop) sudah dibungkus
+       overflow-x-auto sendiri, jadi ini hanya jaring pengaman. */
+    overflow-x: hidden;
   }
   ::-webkit-scrollbar {
     width: 6px;
@@ -36,6 +45,17 @@
   }
   ::-webkit-scrollbar-track {
     background: transparent;
+  }
+}
+
+/* Jaring pengaman kedua: tabel yang lupa dibungkus overflow-x-auto
+   tetap tidak melebar keluar viewport di mobile. */
+@media (max-width: 1023px) {
+  table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 
