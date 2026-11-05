@@ -1,9 +1,13 @@
 # PRD — Danaku Lender Platform
 
+> ⚠️ **DOKUMEN INI DUPLIKAT LAMA (v1.0, 31 Okt 2026) — JANGAN DIPAKAI.**
+> Acuan resmi adalah **`PRD.md` di root repo** (v3.1, 5 Nov 2026 — model bank keliling, M0–M20).
+> File ini sengaja dibiarkan hanya sebagai arsip sejarah model pinjol v1.0.
+
 | | |
 |---|---|
 | **Produk** | Danaku — platform pinjaman (lending) mobile-first |
-| **Versi dokumen** | v1.0 — 31 Oktober 2026 |
+| **Versi dokumen** | v1.0 — 31 Oktober 2026 (ARSIP) |
 | **Status** | MVP dalam pengembangan (fase build) |
 | **Pemilik** | Operator |
 | **Platform** | Mobile app (Flutter, Android + iOS) · Admin web (React + Vite) |

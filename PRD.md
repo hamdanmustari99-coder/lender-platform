@@ -1,8 +1,8 @@
 # PRD — Danaku Bank Keliling Platform
 
-**Versi:** 2.0 (Model Bank Keliling — revisi 1 Nov 2026)
-**Tanggal:** 1 Nov 2026
-**Status:** In Development — migrasi dari model pinjol (v1.0) ke bank keliling
+**Versi:** 3.1 (Revisi operasional 5 Nov 2026 — M14 s/d M20)
+**Tanggal:** 5 Nov 2026
+**Status:** In Development — v3.1 (fondasi skala besar + penyempurnaan operasional)
 **Pemilik:** Operator (D4NNBOZ)
 **Klien:** Usaha bank keliling (owner + petugas lapangan + nasabah)
 **Repo:** `C:/Users/simpl/lender-platform/` → `mobile/` (Flutter) + `admin/` (React+Vite) + `supabase/schema.sql`
@@ -27,6 +27,14 @@ Keputusan klien (3 Nov 2026 — FINAL):
 - Nasabah baru: didaftarkan petugas; ke depan daftar mandiri dipandu petugas.
 - Jumlah petugas: belum diketahui → kelola tim harus dinamis.
 
+Revisi klien (5 Nov 2026):
+- **Nasabah tidak perlu email** — email dummy `nNIK@danaku.test` dibuat otomatis dan disembunyikan dari UI.
+- **Foto nasabah, foto KTP, foto jaminan, dan koordinat lokasi** harus tersimpan & tampil di detail nasabah.
+- **Menu Calon Nasabah dihapus**; diganti **fitur hapus nasabah** (dengan guard pinjaman berjalan).
+- **Semua konfirmasi pakai popup box custom** — tidak boleh dialog bawaan browser.
+- **Minimum pinjaman Rp50.000** (sebelumnya Rp500.000).
+- **Aplikasi harus disiapkan untuk nasabah banyak** — jangan tambal kondisi sekarang.
+
 ## 2. Masalah yang Diselesaikan
 
 - Catatan petugas masih buku fisik → hilang, tidak terekap, owner tidak tahu duit berapa yang dibawa tiap petugas.
@@ -50,7 +58,7 @@ Keputusan klien (3 Nov 2026 — FINAL):
 ### In-scope (MVP v2.0 — migrasi dari v1.0)
 - Auth 3 peran: admin/owner, petugas (dibuatkan owner), nasabah (daftar mandiri/didaftarkan petugas).
 - KYC full KTP + 3 nomor + 2 kontak darurat (SUDAH JADI ✅).
-- Pengajuan pinjaman: plafon Rp500rb–Rp20jt, **frekuensi mingguan/bulanan**, bunga flat **20%/periode**.
+- Pengajuan pinjaman: plafon **Rp50rb–Rp20jt** (revisi M17, 5 Nov 2026), **frekuensi mingguan/bulanan**, bunga flat **20%/periode**.
 - Approval: submitted → approved/disbursed | rejected + alasan (survey formal DITIADAKAN — sesuai realita bank keliling).
 - Auto-generate jadwal **per frekuensi** (mingguan: due tiap 7 hari; bulanan: tiap bulan).
 - **Pembayaran tunai oleh petugas** (RPC `record_cash_payment`): catat jumlah, tanggal, penerima (petugas_id), cicilan lunas parsial/penuh; auto-complete loan.
@@ -95,17 +103,22 @@ Admin Web (Vite) ──┘
 - Mobile & admin bicara langsung ke Supabase SDK (supabase_flutter / supabase-js).
 - Bucket KYC private; baca hanya via signed URL 10 menit.
 
-## 8. Model Data (kontrak — lihat supabase/schema.sql; MIGRASI v2.0 PENDING)
+## 8. Model Data (kontrak — lihat supabase/schema.sql)
 
-- **profiles**(id→auth.users, role **admin|petugas|nasabah** ← rename dari borrower|admin, field KTP full + phone + kyc_status; tambah `petugas_id` → penanggung jawab (untuk nasabah), `wilayah` (untuk petugas))
+- **profiles**(id→auth.users, role **admin|petugas|nasabah**, field KTP full + phone + kyc_status; `petugas_id` → penanggung jawab, `wilayah`; **M14: `foto_path`** → foto nasabah; M9: `current_address`, `office_address`, `home_lat/lng`, `office_lat/lng`)
 - **emergency_contacts**(tetap ✅)
-- **kyc_documents**(tetap ✅)
-- **loans**(+ `frequency` **weekly|monthly**, + `interest_rate` default **15.00**, + `late_fee` default 0, + `collected_by` → petugas yang input bayar terakhir; tenor = jumlah periode sesuai frekuensi)
-- **installments**(+ `paid_by` → petugas_id, + `paid_at` tetap, + `amount_paid` untuk cicilan parsial)
-- **payments**(BARU): setiap setoran tunai (id, loan_id, installment_id, nasabah, petugas, amount, paid_at, note) — buku kas digital
+- **kyc_documents**(tetap ✅ — M14: `storage_path` diubah jadi text agar bisa simpan URL Cloudinary)
+- **nasabah_documents**(BARU M14): foto nasabah / foto KTP / foto jaminan (user_id, doc_type, url, created_at) — jaminan didaftarkan sebelum pinjaman ada, jadi tidak bisa ikut `loan_documents` yang terikat `loan_id`
+- **loans**(+ `frequency` **weekly|monthly**, + `interest_rate` default **20.00**, + `late_fee` default 0, + `collected_by`; M9: `requested_amount`, `collateral_type`, `collateral_detail`; tenor = jumlah periode sesuai frekuensi; **M17: CHECK amount 50.000–20.000.000**)
+- **installments**(+ `paid_by` → petugas_id, + `paid_at`, + `amount_paid` untuk cicilan parsial)
+- **payments**(BARU): setiap setoran tunai (id, loan_id, installment_id, nasabah, petugas, amount, paid_at, note) — buku kas digital; + `void_of`, `void_reason`, `voided_at` (M-void: jejak koreksi)
 - **collection_routes**(BARU): penugasan nasabah → petugas (petugas_id, nasabah_id, wilayah, aktif)
+- **loan_documents**(BARU M9): dokumen pinjaman + RLS
 - **notifications**(tetap ✅ + tipe baru: tagihan & janji bayar)
-- RPC: `approve_loan` (generate jadwal **per frekuensi**), `reject_loan` (tetap ✅), **`record_cash_payment`** (pengganti pay_installment versi petugas: cek petugas/admin → catat payment → update installment → notif), helper `is_admin()`, **`is_petugas()`**, trigger existing + guard frekuensi/bunga.
+- **calon_nasabah**(BARU M6b, **UI/API-nya dihapus M15**): tabel dibiarkan di DB untuk data historis, tidak lagi dipakai aplikasi
+- RPC: `approve_loan` (generate jadwal **per frekuensi**, override nominal final), `reject_loan`, **`record_cash_payment`** (tunai, parsial, auto-apply kelebihan), **`void_payment`** / **`void_and_repay`** (koreksi beraudit), helper `is_admin()` / `is_petugas()`, trigger + guard frekuensi/bunga/tenor.
+- **RPC skala besar (M20):** `laporan_ringkasan()`, `list_nasabah(page,pageSize,search,role,kyc)`, `setoran_harian(page,pageSize,dari,sampai)` — agregasi & paginasi di Postgres, bukan di browser.
+- **Index (M20):** loans(created_at desc), loans(status, created_at desc), installments(due_date,status), installments(status,due_date), payments(paid_at desc), payments(void_of), profiles(created_at desc), profiles(role), profiles(kyc_status), notifications(created_at desc), kyc_documents(created_at desc), loan_documents(created_at desc).
 
 ## 9. Kebutuhan Fungsional — Mobile (FR-M)
 
@@ -118,7 +131,7 @@ Admin Web (Vite) ──┘
 | FR-M3b | Nomor & kontak darurat | ✅ SUDAH JADI |
 | FR-M4 | Upload dokumen | ✅ SUDAH JADI |
 | FR-M5 | Status KYC | Banner; lengkap jika 14 field + 3 nomor + 2 dokumen |
-| FR-M6 | Simulasi pinjaman | Slider 500rb–20jt + **frekuensi mingguan/bulanan** + tenor periode → preview cicilan flat 15% |
+| FR-M6 | Simulasi pinjaman | Slider **50rb**–20jt + **frekuensi mingguan/bulanan** + tenor periode → preview cicilan flat 20% |
 | FR-M7 | Ajukan pinjaman | Insert loans (frequency + tenor; server override rate/payment) |
 | FR-M8 | Daftar pinjaman | List + badge + **sisa utang** |
 | FR-M9 | Detail pinjaman | Jadwal per periode + status + siapa petugas penerima |
@@ -147,25 +160,32 @@ Navigasi nasabah: BottomNav 5 tab (Beranda, Ajukan, Pinjaman, Notifikasi, Profil
 | FR-A3 | Daftar pinjaman | Tabel + join nasabah; filter status + **frekuensi**; cari nama/email; realtime |
 | FR-A4 | Detail pinjaman | Data loan + nasabah + jadwal; approve (RPC), reject (RPC + alasan wajib) |
 | FR-A5 | Verifikasi KYC | Antrean pending + dokumen via signed URL + **data KTP full + 3 nomor + 2 kontak darurat** ✅ SUDAH JADI; tombol Verifikasi/Tolak |
-| FR-A6 | Nasabah & petugas | Tabel semua profile (cari, badge KYC & role); detail + riwayat loan; **tambah akun petugas + tugaskan rute** |
-| FR-A6b | Rekonsiliasi setoran | Setoran harian per petugas (total tunai vs tercatat) + tombol terima |
-| FR-A6c | Laporan | Sisa piutang per nasabah, laba periode (total bunga), nunggak per wilayah |
+| FR-A6 | Nasabah & petugas | Tabel semua profile (cari, badge KYC & role); detail + riwayat loan; **tambah akun petugas + tugaskan rute**; **hapus nasabah** (M15) |
+| FR-A6b | Rekonsiliasi setoran | Setoran harian per petugas (total tunai vs tercatat) + tombol terima; **koreksi salah input** via reversal beraudit (M-void/M-void2) |
+| FR-A6c | Laporan | Sisa piutang per nasabah, laba periode (total bunga), nunggak per wilayah — **agregasi di server** (RPC `laporan_ringkasan`, M20) |
+| FR-A6d | Daftar nasabah ber-paginasi | 50 baris/halaman + search nama/email/telepon/NIK + badge telat dari server (RPC `list_nasabah`, M20) |
 | FR-A7 | Realtime | Subscribe loans/profiles/kyc_documents/**payments** → auto-reload |
 | FR-A8 | Mode belum-konfigurasi | Banner kuning; error login ditangani, tidak crash |
+| FR-A9 | Dialog konfirmasi custom | **Nol dialog bawaan browser** (`window.confirm/prompt/alert`) — semua konfirmasi pakai modal React (M16) |
 
 Layout: sidebar (Dashboard, Pinjaman, Verifikasi KYC, Users). Bahasa Indonesia, badge warna per status.
 
-## 11. Kebutuhan Backend (FR-B — v1.0 di schema.sql ✅; v2.0 PENDING migrasi)
+## 11. Kebutuhan Backend (FR-B)
 
 V1.0 (live): FR-B1 ✅ FR-B2 ✅ FR-B3 ✅ FR-B3b ✅ FR-B4 ✅(jadwal bulanan) FR-B5 ✅ FR-B6 ✅.
+V2.0 (live): FR-B1b ✅ FR-B4b ✅ FR-B6b ✅ FR-B7 ✅.
+V3.0–v3.1 (live): nominal final admin (`approve_loan(p_amount_override)`), `admin_create_loan`, `nasabah_telat_flag`, guard tenor monthly 1|3 / weekly 1-52, `void_payment` + `void_and_repay` (koreksi beraudit), auto-apply kelebihan bayar, `delete-nasabah` (edge function, cascade + guard), cek NIK sebelum `createUser`, foto/lokasi/dokumen nasabah, **agregasi & paginasi server** (`laporan_ringkasan`, `list_nasabah`, `setoran_harian`), **12 index skala besar**, **CHECK amount 50.000–20.000.000**.
 
-V2.0 (menunggu eksekusi — SETELAH build APK kelar):
-| ID | Aturan |
-|---|---|
-| FR-B1b | RLS 3 peran: nasabah = miliknya; petugas = nasabah dalam rutenya + tulis payments; owner = semua |
-| FR-B4b | approve_loan: generate jadwal **per frequency** (weekly: +7 hari × N; monthly: +1 bulan × N); bunga default **15.00**; guard frequency weekly\|monthly |
-| FR-B6b | `record_cash_payment`: cek petugas/admin → catat payments (tunai) → update installment (penuh/parsial) + paid_by → notif; semua paid → completed |
-| FR-B7 | Role enum migrasi borrower→nasabah + petugas baru; `handle_new_user` default nasabah; pembuatan petugas/admin hanya via owner (GoTrue Admin API + promote) |
+| ID | Aturan | Status |
+|---|---|---|
+| FR-B1b | RLS 3 peran: nasabah = miliknya; petugas = nasabah dalam rutenya + tulis payments; owner = semua | ✅ |
+| FR-B4b | approve_loan: generate jadwal **per frequency**; bunga default **20.00**; guard frequency weekly\|monthly | ✅ |
+| FR-B6b | `record_cash_payment`: cek petugas/admin → catat payments → update installment (penuh/parsial) + paid_by → notif; semua paid → completed | ✅ |
+| FR-B7 | Role enum nasabah + petugas; `handle_new_user` default nasabah; pembuatan petugas/admin hanya via owner | ✅ |
+| FR-B8 | `void_payment` / `void_and_repay`: koreksi salah input dengan reversal beraudit (alasan wajib, baris lawan negatif, link `void_of`) | ✅ |
+| FR-B9 | `delete-nasabah`: hapus akun + cascade; tolak hapus akun sendiri & tolak jika masih ada pinjaman berjalan | ✅ |
+| FR-B10 | Cek duplikat NIK sebelum `auth.admin.createUser` → 409 `nik_exists` + auto-recover akun yatim | ✅ |
+| FR-B11 | Agregasi & paginasi di Postgres (`laporan_ringkasan`, `list_nasabah`, `setoran_harian`) + index pendukung | ✅ |
 
 ## 12. Alur Bisnis Utama (Bank Keliling)
 
@@ -186,7 +206,7 @@ Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 
 - Bunga flat **20%/periode**: `total = amount + amount*20%`; `cicilan = ceil(total/tenor)`.
   Contoh: pinjam 1jt, 10 minggu → total 1.200.000 → 120.000/minggu.
-- Batas: amount 500.000–20.000.000 (CHECK), tenor = jumlah periode 1–52 (mingguan) / 1–12 (bulanan).
+- Batas: amount **50.000–20.000.000** (CHECK, revisi M17 5 Nov 2026 — sebelumnya 500.000), tenor = jumlah periode 1–52 (mingguan) / 1–3 (bulanan, revisi M9).
 - Frekuensi: `weekly` (due = approve + 7×i hari) | `monthly` (due = approve + i bulan).
 - Denda: kolom `late_fee` ada, nilai **0** sampai klien menentukan.
 - Status final: `completed` otomatis saat semua paid; `rejected` butuh alasan wajib.
@@ -194,8 +214,11 @@ Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 
 ## 14. Non-Fungsional
 
-- Mobile: Android 8+ / iOS 15+, ukuran APK debug wajar, bekerja di koneksi seluler.
+- Mobile: Android 8+ / iOS 15+, ukuran APK debug wajar (223MB — termasuk model OCR KTP), bekerja di koneksi seluler.
 - Admin: browser modern, build statis < 1 MB gzip JS (di luar recharts), PWA tidak required.
+- **Skala besar (M20):** daftar nasabah, setoran, dan laporan ber-paginasi + agregasi di Postgres, sehingga tetap responsif pada ribuan nasabah / puluhan ribu cicilan tanpa refactor. Index sudah disiapkan untuk pola query sort/filter/join yang dipakai UI.
+- **Zona waktu:** semua perhitungan tanggal (overdue, setoran harian, jatuh tempo) memakai `Asia/Jakarta`. Agregasi setoran sebelumnya memakai UTC — sudah dibetulkan di M20.
+- **Dialog:** nol dialog bawaan browser (`window.confirm/prompt/alert`) di admin web; semua konfirmasi pakai modal React. Mobile memakai `AlertDialog` native.
 - Availability mengikuti SLA Supabase Cloud (free tier cukup untuk MVP/demo).
 - Bahasa UI: Indonesia. Zona waktu tampilan: id-ID.
 
@@ -217,6 +240,10 @@ Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 | Nasabah gaptek (tidak install app) | App nasabah opsional — petugas bisa daftarkan & operasikan atas nama nasabah |
 | Angka bunga belum fix | 20% per 3 Nov 2026; ganti via 1 migration + 1 konstanta |
 | Ketergantungan Supabase cloud | Skema SQL standar Postgres → bisa migrasi self-host kapan pun |
+| Nasabah numpuk → aplikasi lambat | Sudah dicegah di M20: paginasi + agregasi server + 12 index. Sisa: Dashboard masih menarik semua loans/profiles/payments (butuh angka agregat) — kalau lambat, bikin RPC `dashboard_ringkasan()` dengan pola yang sama |
+| Email dummy nabrak saat NIK dobel | Dicegah di FR-B10: cek `profiles.nik` sebelum `createUser` → 409 + auto-recover akun yatim |
+| Hapus nasabah salah klik / hapus yang masih berutang | Modal konfirmasi custom (M16) + 2 guard di `delete-nasabah` (FR-B9) |
+| Setoran malam kecatat hari berikutnya | Dibetulkan di M20: agregasi pakai `Asia/Jakarta`, bukan UTC |
 
 ## 17. Milestone
 
@@ -240,8 +267,16 @@ Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 - [x] M11 Tanpa-petugas (3 Nov 2026): klien TANPA petugas lapangan — admin daftarkan nasabah + catat bayar langsung. Admin web: halaman **NasabahBaru** (`/users/new`: signUp email n[NIK]@danaku.local + restore sesi admin + profil verified, tombol di Users) + **Catat Bayar tunai** per cicilan di LoanDetail (modal nominal+catatan, RPC record_cash_payment, auto-apply) + Setoran label "Pencatat". Uji live ✅: admin catat 100rb ke Dedi (parsial, petugas_id=admin). Build admin ✅.
 - [x] M10 Bunga 20% (3 Nov 2026): default kolom + guard 15→20; mobile _rate 20.0; PRD §13/keputusan/risiko + DEMO + PPTX (120rb/minggu, total 1.2jt) sinkron. **Bug ketemu & fix:** overload approve_loan (2 versi) bikin PostgREST 300 → drop versi 1-arg, sisakan 2-arg (default = kompatibel). Uji live: Candra 1jt/10 → 20.00 + 120rb ✅ → approve → completed 10×120rb ✅. Catatan: loan yang SUDAH cair sebelum ini tetap ikut akad lamanya (15%); 1 loan submitted lama disamakan 20%.
 - [x] M9 v3.0 Registrasi & fitur klien (3 Nov 2026): DB live — profiles +6 kolom (current/office address + 4 shareloc), loans +3 (requested_amount, collateral_type/detail), loan_documents + RLS, RPC approve_loan(p_amount_override), admin_create_loan (fix monthly_payment dummy), nasabah_telat_flag, guard tenor monthly 1|3 + weekly 1-52. Uji live ✅ (tenor 2 ditolak, tenor 3 OK, override 1.8jt = 690rb, multi paralel, flag budi=true/dedi=false, Dedi e2e usulan 3jt → final 2.5jt + WA-loan 1jt cair). Mobile: KYC +alamat/kantor/shareloc + OCR KTP (mlkit) + apply tenor 1/3 + jaminan + foto di detail + izin lokasi/kamera; Admin: LoanDetail nominal final + dokumen + LoanNew + Users/UserDetail flag telat + domisili/maps. Build: web ✅ APK 223MB ✅ admin ✅, analyze 0 error. **Web mobile: `mobile/build/web/` (serve statis /mobile/).**
+- [x] **9336fb7 Fix create-nasabah (5 Nov 2026)** — error "A user with this email address has already been registered": akar masalah `auth.admin.createUser()` tidak cek duplikat, email dummy `nNIK@danaku.test` nabrak saat NIK sudah pernah didaftarkan atau percobaan gagal di tengah (akun auth kebuat tapi profil gagal). Fix: edge function cek `profiles.nik` DULU → 409 `nik_exists` dengan nama pemilik NIK + auto-recover akun yatim (`recovered: true`); frontend kirim `nik`, tampilkan pesan jelas + link "Cari di daftar Users". Deploy + uji live: NIK Budi → 409, NIK baru → 200, retry → 200 recovered, tanpa token → 401.
+- [x] **M14 Foto & lokasi nasabah (5 Nov 2026)** — revisi klien: nasabah tidak perlu email (email dummy `nNIK@danaku.test` dibuat otomatis & **disembunyikan dari UI**), foto nasabah/KTP/jaminan + koordinat shareloc harus tersimpan & tampil di detail. Migrasi `20261105090000_nasabah_dokumen.sql`: tabel **nasabah_documents**, `profiles.foto_path`, `kyc_documents.storage_path` → text (simpan URL Cloudinary). `supabase db push` awalnya gagal (migration history remote tak cocok) → `migration repair --status reverted` 39 ID → sukses. Frontend: NasabahBaru simpan foto ke Cloudinary + URL ke DB; UserDetail grid Foto Nasabah / Foto KTP / Jaminan + section Detail Jaminan + koordinat `home_lat/lng` & `office_lat/lng` dengan link Google Maps; Users hapus kolom Email (ganti Telepon). **Bug ketemu & fix:** foto KTP tidak tampil karena frontend simpan ke `kyc_documents` tapi detail baca `nasabah_documents` → KTP kini disimpan ke KEDUA tabel. Uji live e2e: 3 foto HTTP 200 image/png, render di browser ✅.
+- [x] **M15 Hapus Calon Nasabah + fitur hapus nasabah (5 Nov 2026)** — revisi klien. Hapus nav `/calon` (Layout), route + import (App), file `CalonNasabah.tsx`, fungsi calon dari api.ts, action `convert-calon` dari edge function. **Tabel `calon_nasabah` dibiarkan di DB** (data historis aman). Tambah action **`delete-nasabah`**: `auth.admin.deleteUser` + `ON DELETE CASCADE`, dengan 2 guard — (a) tidak bisa hapus akun sendiri (cegah admin terkunci), (b) tolak 409 jika masih ada pinjaman `active|disbursed|under_review|submitted` (histori utang tidak boleh hilang). UI Users: kolom Aksi + tombol Hapus per baris. Uji live: convert-calon → 400, delete tanpa user_id → 400, hapus diri sendiri → 400, hapus nasabah tanpa pinjaman → 200 cascade bersih, hapus Budi (ada pinjaman) → 409, `/calon` redirect dashboard ✅.
+- [x] **M16 Modal konfirmasi custom (5 Nov 2026)** — revisi klien: "buat apapun yang meminta konfirmasi di dalem aplikasi, dibuatin aja pop up box yang bukan bawaan dari browser". Komponen baru `admin/src/components/ConfirmDialog.tsx` (`ConfirmProvider` + `useConfirm`), API promise-based (`await confirm({...})`) supaya pemanggil tidak perlu refactor jadi state-driven. Fitur: tone `danger` (merah) / `primary` (hijau), Escape = batal, klik backdrop = batal, fokus otomatis ke tombol Batal (Enter tidak langsung eksekusi aksi merusak), opsi `requireText` untuk konfirmasi ketik-teks. Provider di-mount sekali di `App.tsx`. Scan seluruh `admin/src`: hanya 1 tempat pakai `window.confirm` (`Users.tsx`) → diganti. Mobile Flutter sudah pakai `AlertDialog` native (tidak diubah). Uji live: `window.confirm` calls = **0**, modal muncul dengan judul/pesan/tombol benar, Batal/Escape/backdrop semua nutup tanpa menghapus, konfirmasi benar-benar menghapus baris ✅.
+- [x] **M17 Minimum pinjaman Rp50.000 (5 Nov 2026)** — revisi klien: "untuk minimum peminjaman nya itu paling kecil 50 ribu rupiah". Migrasi `20261105100000_min_pinjaman_50rb.sql`: `loans_amount_check` → `between 50000 and 20000000`; `approve_loan()` & `admin_create_loan()` validasi 50000..20000000. Body fungsi di-copy **verbatim** dari schema.sql (hanya angka batas bawah + pesan error yang berubah) supaya perilaku lain tidak berubah. schema.sql 3 tempat; admin `LoanNew.tsx` (validasi + min/step + hint) & `LoanDetail.tsx` (validasi nominal final); mobile `_minAmount = 50000` + quick chips tambah 50rb/100rb/500rb. Uji live RPC: 49.999 → 400, 50.000 → 200 disbursed (cicilan 15.000 ×4), 20.000.000 → 200, 20.000.001 → 400 ✅.
+- [x] **M18 Teks limit pinjaman mobile yang kelewat (5 Nov 2026)** — saat verifikasi M17 ditemukan 2 teks marketing masih nulis Rp500.000: `login_screen.dart` ("Rp500.000 - Rp20.000.000") & `home_screen.dart` ("mulai Rp500 ribu"). Keduanya teks info, bukan validasi, tapi membingungkan user. Diperbaiki → Rp50.000. Verifikasi: `dart analyze lib/` bersih (4 info deprecation pre-existing di `kyc_screen.dart`), `flutter build apk --debug` sukses, dan string dicek **di dalam APK** — teks baru ADA, teks lama HILANG ✅.
+- [x] **M19 Hilangkan N+1 query (5 Nov 2026)** — keluhan klien: menu Laporan lambat. Diagnosis terukur di browser: **36 request REST** per buka halaman, 30 di antaranya `installments` — cicilan di-fetch satu-per-satu per pinjaman dengan `await` di dalam `for` loop (berurutan, bukan paralel). Fix: `fetchInstallmentsForLoans(loanIds)` — satu query `in.(...)` lalu di-group jadi `Map<loanId, Installment[]>`, chunk 200 ID. Diterapkan di 3 halaman dengan pola sama: **Laporan** (36→6 request), **Dashboard** (nunggak per pinjaman), **UserDetail** (`Promise.all` per pinjaman). Angka laporan diverifikasi ulang independen dan **identik** (56.130.000 / 12.669.583 / 43.460.417 / 8.280.000 / 1 nunggak); jumlah cicilan via batch = 67 = via N+1 ✅.
+- [x] **M20 Fondasi skala besar (5 Nov 2026)** — revisi klien: "jangan lihat kondisi sekarang tapi harus udah di siapin untuk nasabah yang banyak biar ke depan nya ga banyak yang di upgrade". Audit menemukan 5 masalah: index kurang, Laporan hitung di browser, Users tanpa paginasi, badge telat N+1, Setoran narik 2000 payment. Migrasi `20261105110000_skala_besar.sql`: **12 index baru** + **3 RPC** (`laporan_ringkasan()`, `list_nasabah(page,pageSize,search,role,kyc)`, `setoran_harian(page,pageSize,dari,sampai)`) — agregasi & paginasi pindah ke Postgres. Frontend: Laporan pakai RPC; Users paginasi 50/halaman + search ter-debounce (nama/email/telepon/NIK) + badge telat dari server; Setoran agregasi server + rincian transaksi **on-demand** saat baris di-expand. **Bug timezone ikut dibetulkan:** agregasi setoran lama memakai `paid_at.slice(0,10)` = tanggal **UTC**, sehingga setoran malam hari (≥ 17:00 UTC) tercatat di hari berikutnya di WIB — sekarang dikonversi ke `Asia/Jakarta`. Verifikasi: angka Laporan identik, Users 11 user + search "budi" → 2 hasil, Setoran 5 grup + expand jalan, RPC tanpa login → 401, request per halaman Laporan 6→4 ✅.
 
-**Status board (1 Nov 2026):** ✅ SEMUA M SELESAI (M0–M8 + M-void/M-void2/M-autoapply + M6b/M6c/M7b/M7c). APK final + admin live + data demo + DEMO.md siap. File `docs/PRD.md` duplikat lama — acuan resmi `PRD.md` root.
+**Status board (5 Nov 2026):** ✅ SEMUA M SELESAI (M0–M13 + M-void/M-void2/M-autoapply + M6b/M6c/M7b/M7c + M9–M20). Admin live + APK debug 223MB + data demo + DEMO.md siap. Fondasi skala besar (index, paginasi, agregasi server) sudah masuk. File `docs/PRD.md` duplikat lama (v1.0 pinjol) — acuan resmi `PRD.md` root.
 
 ## 18. Acceptance Criteria MVP (Definition of Done) — HASIL UJI 1 Nov 2026
 
@@ -257,13 +292,15 @@ Setoran: petugas submit rekap harian → owner rekonsiliasi (tunai vs tercatat)
 
 ## 19. Roadmap Pasca-MVP (prioritas bank keliling)
 
-1. ✅ **SELESAI M13 (5 Nov 2026)** — Convert calon 1-klik (Edge Function `convert-calon` + assign rute otomatis ke petugas pendaftar).
+1. ✅ **SELESAI M13 (5 Nov 2026)** — Convert calon 1-klik (Edge Function `convert-calon` + assign rute otomatis ke petugas pendaftar). *Catatan: UI/API-nya dihapus di M15 (klien tak pakai alur calon lagi); tabel `calon_nasabah` dibiarkan untuk data historis.*
 2. ✅ **SELESAI M13 (5 Nov 2026)** — Status overdue otomatis (`pg_cron` 00:00 WIB + notifikasi `tagihan`). **Sisa:** denda nominal saat angka final disepakati klien (`loans.late_fee` masih 0).
 3. Push notification (FCM) + pengingat H-3/H-1 ke nasabah. *Sebagian: notifikasi in-app `tagihan` sudah terbit dari job harian; FCM belum.*
 4. Plafon naik otomatis untuk nasabah lancar.
 5. Cetak kartu angsuran fisik (PDF/thermal) dari jadwal.
 6. Multi-wilayah + multi-owner (cabang).
 7. Audit log UI (siapa ubah/void apa). *Catatan: `payments.void_of/void_reason/voided_at` sudah menyimpan jejak koreksi, belum ada layar khusus.*
+8. **RPC `dashboard_ringkasan()`** — Dashboard masih menarik semua loans/profiles/payments karena butuh angka agregat. Kalau sudah lambat, ikutin pola M20 (agregasi di Postgres). *Belum diperlukan pada skala sekarang.*
+9. **Filter role & KYC di halaman Users** — parameter `p_role` / `p_kyc` sudah ada di RPC `list_nasabah` (M20), tinggal dipasang UI-nya kalau dibutuhkan.
 
 ---
 
