@@ -1,33 +1,34 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  buildPiutang,
-  fetchInstallmentsForLoans,
-  fetchLoans,
+  fetchLaporanRingkasan,
   subscribeToTables,
-  totalLaba,
 } from '../lib/api'
-import type { Loan, PiutangNasabah } from '../lib/api'
+import type { PiutangNasabah } from '../lib/api'
 import { errMsg, fmtRp } from '../lib/format'
 
 /**
  * M7 FR-A6c — Laporan: sisa piutang per nasabah (urut terbesar),
  * daftar nunggak, total outstanding & laba kotor periode.
+ *
+ * Agregasi dilakukan Postgres (RPC laporan_ringkasan), bukan di browser, supaya
+ * tetap cepat ketika pinjaman & cicilan sudah banyak.
  */
 export default function Laporan() {
-  const [rows, setRows] = useState<PiutangNasabah[]>([])
-  const [loans, setLoans] = useState<Loan[]>([])
+  const [ringkasan, setRingkasan] = useState<{
+    totalTagihan: number
+    totalBayar: number
+    totalSisa: number
+    laba: number
+    jumlahNunggak: number
+    perNasabah: PiutangNasabah[]
+  } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
     try {
-      const ls = await fetchLoans()
-      setLoans(ls)
-      // Cicilan semua pinjaman dalam 1 request (bukan N+1 per pinjaman).
-      const aktif = ls.filter((l) => l.status !== 'rejected')
-      const byLoan = await fetchInstallmentsForLoans(aktif.map((l) => l.id))
-      setRows(buildPiutang(ls, byLoan))
+      setRingkasan(await fetchLaporanRingkasan())
       setError(null)
     } catch (e) {
       setError(errMsg(e))
@@ -43,11 +44,12 @@ export default function Laporan() {
 
   if (loading) return <div className="text-sm text-slate-500">Memuat data…</div>
 
-  const totalSisa = rows.reduce((s, r) => s + r.sisa, 0)
-  const totalBayar = rows.reduce((s, r) => s + r.totalBayar, 0)
-  const totalTagihan = rows.reduce((s, r) => s + r.totalTagihan, 0)
+  const rows = ringkasan?.perNasabah ?? []
+  const totalSisa = ringkasan?.totalSisa ?? 0
+  const totalBayar = ringkasan?.totalBayar ?? 0
+  const totalTagihan = ringkasan?.totalTagihan ?? 0
   const nunggakRows = rows.filter((r) => r.nunggak > 0)
-  const laba = totalLaba(loans)
+  const laba = ringkasan?.laba ?? 0
 
   return (
     <div className="space-y-6">

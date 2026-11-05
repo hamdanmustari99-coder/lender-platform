@@ -213,6 +213,134 @@ export async function fetchProfiles(): Promise<Profile[]> {
   return (data ?? []) as Profile[]
 }
 
+// ---------- Skala besar: paginasi + agregasi di server ----------
+
+export interface LaporanRingkasan {
+  totalTagihan: number
+  totalBayar: number
+  totalSisa: number
+  laba: number
+  jumlahNunggak: number
+  perNasabah: PiutangNasabah[]
+}
+
+/**
+ * Ringkasan laporan dihitung Postgres, bukan di browser.
+ *
+ * Versi lama menarik SEMUA loans + SEMUA installments lalu reduce() di client.
+ * Dengan ribuan pinjaman itu puluhan ribu baris ditransfer dan dihitung di
+ * perangkat user. Fungsi ini mengembalikan angka final + rincian per nasabah.
+ */
+export async function fetchLaporanRingkasan(): Promise<LaporanRingkasan> {
+  const { data, error } = await supabase.rpc('laporan_ringkasan')
+  if (error) throw error
+  const r = (data ?? {}) as Partial<LaporanRingkasan>
+  return {
+    totalTagihan: r.totalTagihan ?? 0,
+    totalBayar: r.totalBayar ?? 0,
+    totalSisa: r.totalSisa ?? 0,
+    laba: r.laba ?? 0,
+    jumlahNunggak: r.jumlahNunggak ?? 0,
+    perNasabah: r.perNasabah ?? [],
+  }
+}
+
+export interface NasabahRow {
+  id: string
+  full_name: string
+  email: string
+  phone: string
+  nik: string
+  role: string
+  kyc_status: string
+  foto_path: string | null
+  created_at: string
+  petugas_id: string | null
+  /** Pernah punya cicilan lewat jatuh tempo (badge telat) */
+  telat: boolean
+}
+
+export interface ListNasabahResult {
+  total: number
+  page: number
+  pageSize: number
+  rows: NasabahRow[]
+}
+
+/**
+ * Daftar nasabah ber-paginasi, lengkap dengan badge "telat" dalam satu call.
+ *
+ * Versi lama: fetchProfiles() menarik semua profil, lalu flag telat di-fetch
+ * per user (N+1). Fungsi ini mengembalikan satu halaman + flag-nya.
+ */
+export async function listNasabah(params: {
+  page?: number
+  pageSize?: number
+  search?: string
+  role?: string
+  kyc?: string
+} = {}): Promise<ListNasabahResult> {
+  const { data, error } = await supabase.rpc('list_nasabah', {
+    p_page: params.page ?? 1,
+    p_page_size: params.pageSize ?? 50,
+    p_search: params.search ?? null,
+    p_role: params.role ?? null,
+    p_kyc: params.kyc ?? null,
+  })
+  if (error) throw error
+  const r = (data ?? {}) as Partial<ListNasabahResult>
+  return {
+    total: r.total ?? 0,
+    page: r.page ?? 1,
+    pageSize: r.pageSize ?? 50,
+    rows: (r.rows ?? []) as NasabahRow[],
+  }
+}
+
+export interface SetoranHarianRow {
+  tanggal: string
+  petugasId: string | null
+  petugasNama: string
+  total: number
+  jumlah: number
+}
+
+export interface SetoranHarianResult {
+  total: number
+  page: number
+  pageSize: number
+  rows: SetoranHarianRow[]
+}
+
+/**
+ * Setoran harian diagregasi Postgres per tanggal WIB + petugas, ber-paginasi.
+ *
+ * Versi lama menarik 2000 payment terbaru lalu agregasi di browser, dan memakai
+ * paid_at.slice(0,10) = tanggal UTC (setoran malam kecatat hari berikutnya).
+ * Fungsi ini memakai Asia/Jakarta supaya tanggalnya sesuai tanggal lokal.
+ */
+export async function fetchSetoranHarian(params: {
+  page?: number
+  pageSize?: number
+  dari?: string
+  sampai?: string
+} = {}): Promise<SetoranHarianResult> {
+  const { data, error } = await supabase.rpc('setoran_harian', {
+    p_page: params.page ?? 1,
+    p_page_size: params.pageSize ?? 50,
+    p_dari: params.dari ?? null,
+    p_sampai: params.sampai ?? null,
+  })
+  if (error) throw error
+  const r = (data ?? {}) as Partial<SetoranHarianResult>
+  return {
+    total: r.total ?? 0,
+    page: r.page ?? 1,
+    pageSize: r.pageSize ?? 50,
+    rows: (r.rows ?? []) as SetoranHarianRow[],
+  }
+}
+
 export async function fetchProfile(id: string): Promise<Profile | null> {
   const { data, error } = await supabase
     .from('profiles')
@@ -272,6 +400,33 @@ export async function fetchPayments(limit = 2000): Promise<Payment[]> {
     )
     .order('paid_at', { ascending: false })
     .limit(limit)
+  if (error) throw error
+  return (data ?? []) as Payment[]
+}
+
+/**
+ * Rincian transaksi satu hari untuk satu pencatat — dipanggil hanya saat baris
+ * setoran di-expand, jadi halaman tidak perlu menarik ribuan payment di awal.
+ *
+ * Tanggal difilter di sisi server memakai rentang WIB (Asia/Jakarta) supaya
+ * konsisten dengan agregasi setoran_harian.
+ */
+export async function fetchPaymentsForDay(
+  tanggal: string,
+  petugasId: string | null,
+): Promise<Payment[]> {
+  let q = supabase
+    .from('payments')
+    .select(
+      '*, petugas:profiles!payments_petugas_id_fkey(full_name, email), nasabah:profiles!payments_nasabah_id_fkey(full_name, email)',
+    )
+    .order('paid_at', { ascending: true })
+  // rentang WIB hari itu, dikirim sebagai UTC
+  const dari = `${tanggal}T00:00:00+07:00`
+  const sampai = `${tanggal}T23:59:59.999+07:00`
+  q = q.gte('paid_at', dari).lte('paid_at', sampai)
+  if (petugasId) q = q.eq('petugas_id', petugasId)
+  const { data, error } = await q
   if (error) throw error
   return (data ?? []) as Payment[]
 }

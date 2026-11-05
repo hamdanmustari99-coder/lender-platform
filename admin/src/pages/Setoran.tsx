@@ -1,30 +1,47 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
-  aggregateSetoran,
-  fetchPayments,
+  fetchPaymentsForDay,
+  fetchSetoranHarian,
   subscribeToTables,
   voidAndRepay,
   voidPayment,
 } from '../lib/api'
-import type { Payment } from '../lib/api'
+import type { Payment, SetoranHarianRow } from '../lib/api'
 import { errMsg, fmtDate, fmtRp } from '../lib/format'
+
+const PAGE_SIZE = 50
 
 /**
  * M7 FR-A6b — Rekonsiliasi setoran: agregasi tunai tercatat per petugas per hari
  * + rincian transaksi. Owner mencocokkan dengan uang fisik yang disetor.
+ *
+ * Agregasi dilakukan Postgres (RPC setoran_harian, tanggal WIB). Rincian
+ * transaksi hanya di-fetch saat baris di-expand, jadi halaman tetap ringan
+ * walau payment sudah puluhan ribu.
  */
 export default function Setoran() {
-  const [payments, setPayments] = useState<Payment[]>([])
+  const [rows, setRows] = useState<SetoranHarianRow[]>([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('') // yyyy-mm-dd, kosongkan = semua
   const [openDay, setOpenDay] = useState<string | null>(null)
+  const [detail, setDetail] = useState<Payment[]>([])
+  const [detailLoading, setDetailLoading] = useState(false)
   const [voiding, setVoiding] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState<string | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (p: number, f: string) => {
     try {
-      setPayments(await fetchPayments())
+      const r = await fetchSetoranHarian({
+        page: p,
+        pageSize: PAGE_SIZE,
+        dari: f || undefined,
+        sampai: f || undefined,
+      })
+      setRows(r.rows)
+      setTotal(r.total)
       setError(null)
     } catch (e) {
       setError(errMsg(e))
@@ -34,21 +51,34 @@ export default function Setoran() {
   }, [])
 
   useEffect(() => {
-    void load()
-    return subscribeToTables(['payments'], () => void load())
-  }, [load])
+    void load(page, filter)
+  }, [load, page, filter])
 
-  const rows = useMemo(() => {
-    const all = aggregateSetoran(payments)
-    return filter ? all.filter((r) => r.tanggal === filter) : all
-  }, [payments, filter])
+  useEffect(() => {
+    return subscribeToTables(['payments'], () => void load(page, filter))
+  }, [load, page, filter])
+
+  const toggleDay = async (r: SetoranHarianRow) => {
+    const key = `${r.tanggal}|${r.petugasId}`
+    if (openDay === key) {
+      setOpenDay(null)
+      setDetail([])
+      return
+    }
+    setOpenDay(key)
+    setDetailLoading(true)
+    try {
+      setDetail(await fetchPaymentsForDay(r.tanggal, r.petugasId))
+    } catch (e) {
+      setActionErr(errMsg(e))
+      setDetail([])
+    } finally {
+      setDetailLoading(false)
+    }
+  }
 
   const grandTotal = rows.reduce((s, r) => s + r.total, 0)
-
-  const detailFor = (tanggal: string, petugasId: string) =>
-    payments.filter(
-      (p) => p.paid_at.slice(0, 10) === tanggal && (p.petugas_id ?? '-') === petugasId,
-    )
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   const [voidTarget, setVoidTarget] = useState<Payment | null>(null)
   const [voidReason, setVoidReason] = useState('')
@@ -76,7 +106,10 @@ export default function Setoran() {
       setVoidTarget(null)
       setVoidReason('')
       setVoidCorrect('')
-      await load()
+      await load(page, filter)
+      // segarkan rincian yang sedang terbuka
+      const cur = rows.find((r) => `${r.tanggal}|${r.petugasId}` === openDay)
+      if (cur) setDetail(await fetchPaymentsForDay(cur.tanggal, cur.petugasId))
     } catch (e) {
       setActionErr(errMsg(e))
     } finally {
@@ -107,12 +140,20 @@ export default function Setoran() {
         <input
           type="date"
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
+          onChange={(e) => {
+            setFilter(e.target.value)
+            setPage(1)
+            setOpenDay(null)
+          }}
           className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
         />
         {filter && (
           <button
-            onClick={() => setFilter('')}
+            onClick={() => {
+              setFilter('')
+              setPage(1)
+              setOpenDay(null)
+            }}
             className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
           >
             Tampilkan semua
@@ -143,21 +184,16 @@ export default function Setoran() {
               {rows.map((r) => {
                 const key = `${r.tanggal}|${r.petugasId}`
                 const open = openDay === key
-                const detail = open ? detailFor(r.tanggal, r.petugasId) : []
                 return (
                   <>
                     <tr key={key} className="border-b border-slate-100">
                       <td className="px-4 py-3 text-slate-700">{fmtDate(r.tanggal)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800">
-                        {r.petugasNama}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{r.count}x</td>
-                      <td className="px-4 py-3 font-bold text-emerald-700">
-                        {fmtRp(r.total)}
-                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-800">{r.petugasNama}</td>
+                      <td className="px-4 py-3 text-slate-600">{r.jumlah}x</td>
+                      <td className="px-4 py-3 font-bold text-emerald-700">{fmtRp(r.total)}</td>
                       <td className="px-4 py-3 text-right">
                         <button
-                          onClick={() => setOpenDay(open ? null : key)}
+                          onClick={() => void toggleDay(r)}
                           className="text-xs font-medium text-emerald-600 hover:underline"
                         >
                           {open ? 'Tutup ▲' : 'Rincian ▼'}
@@ -167,49 +203,55 @@ export default function Setoran() {
                     {open && (
                       <tr key={`${key}-d`} className="bg-slate-50">
                         <td colSpan={5} className="px-6 py-3">
-                          <div className="space-y-1">
-                            {detail.map((p) => (
-                              <div
-                                key={p.id}
-                                className="flex items-center justify-between gap-2 text-xs"
-                              >
-                                <span
-                                  className={
-                                    p.amount < 0 ? 'text-red-600' : 'text-slate-600'
-                                  }
+                          {detailLoading ? (
+                            <div className="text-xs text-slate-400">Memuat rincian…</div>
+                          ) : detail.length === 0 ? (
+                            <div className="text-xs text-slate-400">Tidak ada transaksi</div>
+                          ) : (
+                            <div className="space-y-1">
+                              {detail.map((p) => (
+                                <div
+                                  key={p.id}
+                                  className="flex items-center justify-between gap-2 text-xs"
                                 >
-                                  {new Date(p.paid_at).toLocaleTimeString('id-ID', {
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })}{' '}
-                                  • {p.nasabah?.full_name || '—'}
-                                  {p.note ? ` • “${p.note}”` : ''}
-                                </span>
-                                <span className="flex items-center gap-2">
                                   <span
-                                    className={`font-medium ${p.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}
+                                    className={
+                                      p.amount < 0 ? 'text-red-600' : 'text-slate-600'
+                                    }
                                   >
-                                    {fmtRp(p.amount)}
+                                    {new Date(p.paid_at).toLocaleTimeString('id-ID', {
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}{' '}
+                                    • {p.nasabah?.full_name || '—'}
+                                    {p.note ? ` • “${p.note}”` : ''}
                                   </span>
-                                  {p.amount > 0 && (
-                                    <button
-                                      disabled={voiding === p.id}
-                                      onClick={() => {
-                                        setActionErr(null)
-                                        setVoidReason('')
-                                        setVoidCorrect('')
-                                        setVoidTarget(p)
-                                      }}
-                                      className="font-medium text-amber-600 hover:underline disabled:opacity-50"
-                                      title="Koreksi (reversal beraudit)"
+                                  <span className="flex items-center gap-2">
+                                    <span
+                                      className={`font-medium ${p.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}
                                     >
-                                      Koreksi
-                                    </button>
-                                  )}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
+                                      {fmtRp(p.amount)}
+                                    </span>
+                                    {p.amount > 0 && (
+                                      <button
+                                        disabled={voiding === p.id}
+                                        onClick={() => {
+                                          setActionErr(null)
+                                          setVoidReason('')
+                                          setVoidCorrect('')
+                                          setVoidTarget(p)
+                                        }}
+                                        className="font-medium text-amber-600 hover:underline disabled:opacity-50"
+                                        title="Koreksi (reversal beraudit)"
+                                      >
+                                        Koreksi
+                                      </button>
+                                    )}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </td>
                       </tr>
                     )}
@@ -218,6 +260,34 @@ export default function Setoran() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => {
+              setPage((v) => Math.max(1, v - 1))
+              setOpenDay(null)
+            }}
+            disabled={page <= 1}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            ← Sebelumnya
+          </button>
+          <span className="text-xs text-slate-500">
+            Halaman {page} dari {totalPages}
+          </span>
+          <button
+            onClick={() => {
+              setPage((v) => Math.min(totalPages, v + 1))
+              setOpenDay(null)
+            }}
+            disabled={page >= totalPages}
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50 disabled:opacity-40"
+          >
+            Berikutnya →
+          </button>
         </div>
       )}
 
