@@ -226,6 +226,138 @@ export interface LaporanRingkasan {
  * Dengan ribuan pinjaman itu puluhan ribu baris ditransfer dan dihitung di
  * perangkat user. Fungsi ini mengembalikan angka final + rincian per nasabah.
  */
+/** Satu titik pada tren 6 bulan (M26) */
+export interface TrenBulan {
+  urutan: number
+  label_panjang: string
+  pencairan: number
+  terkumpul: number
+  jatuh_tempo: number
+}
+
+/** Sebaran status keandalan nasabah (M26) */
+export interface SebaranStatus {
+  kode: string
+  label: string
+  urutan: number
+  jumlah: number
+  sisa: number
+}
+
+/** Nasabah dengan piutang terbesar (M26) */
+export interface TopNasabah {
+  nama: string
+  nik: string
+  status: string
+  pinjaman: number
+  sisa: number
+}
+
+/** Arus kas periode (M26) */
+export interface ArusKasBulanan {
+  masuk_pembayaran: number
+  masuk_lain: number
+  keluar_pencairan: number
+  keluar_lain: number
+}
+
+/** Metode pembayaran yang diterima (M26) */
+export interface MetodeBayar {
+  metode: string
+  jumlah: number
+  total: number
+}
+
+/** Kinerja admin pencatat (M26) */
+export interface KinerjaAdmin {
+  nama: string
+  transaksi: number
+  total: number
+}
+
+/** Laporan bulanan lengkap — 8 seksi (M26) */
+export interface LaporanBulanan {
+  periode: {
+    bulan: number
+    tahun: number
+    nama_bulan: string
+    dari: string
+    sampai: string
+    jumlah_hari: number
+    hari_berjalan: number
+    sudah_lewat: boolean
+  }
+  ringkasan: {
+    pencairan: number
+    pinjaman_baru: number
+    nasabah_baru: number
+    jatuh_tempo: number
+    terkumpul: number
+    /** Pembayaran yang dibatalkan/dikoreksi — uang kembali ke nasabah (M26c) */
+    koreksi: number
+    /** terkumpul - koreksi: uang yang benar-benar ditahan (M26c) */
+    terkumpul_bersih: number
+    laba_bunga: number
+    sisa_piutang: number
+    total_modal: number
+    pinjaman_berjalan: number
+    nasabah_aktif: number
+  }
+  tren: TrenBulan[]
+  status: SebaranStatus[]
+  top_nasabah: TopNasabah[]
+  arus_kas: ArusKasBulanan
+  metode: MetodeBayar[]
+  kinerja: KinerjaAdmin[]
+}
+
+/**
+ * Laporan bulanan (M26) — satu call untuk seluruh halaman Laporan.
+ * Default bulan/tahun berjalan (WIB) kalau argumennya null.
+ */
+export async function fetchLaporanBulanan(
+  bulan?: number | null,
+  tahun?: number | null,
+): Promise<LaporanBulanan> {
+  const { data, error } = await supabase.rpc('laporan_bulanan', {
+    p_bulan: bulan ?? null,
+    p_tahun: tahun ?? null,
+  })
+  if (error) throw error
+  const d = (data ?? {}) as Partial<LaporanBulanan>
+  const rk = d.ringkasan ?? ({} as LaporanBulanan['ringkasan'])
+  const terkumpul = rk.terkumpul ?? 0
+  const koreksi = rk.koreksi ?? 0
+  return {
+    periode: d.periode ?? {
+      bulan: 1, tahun: 1970, nama_bulan: '', dari: '', sampai: '',
+      jumlah_hari: 0, hari_berjalan: 0, sudah_lewat: false,
+    },
+    ringkasan: {
+      pencairan: rk.pencairan ?? 0,
+      pinjaman_baru: rk.pinjaman_baru ?? 0,
+      nasabah_baru: rk.nasabah_baru ?? 0,
+      jatuh_tempo: rk.jatuh_tempo ?? 0,
+      terkumpul,
+      koreksi,
+      terkumpul_bersih: rk.terkumpul_bersih ?? terkumpul - koreksi,
+      laba_bunga: rk.laba_bunga ?? 0,
+      sisa_piutang: rk.sisa_piutang ?? 0,
+      total_modal: rk.total_modal ?? 0,
+      pinjaman_berjalan: rk.pinjaman_berjalan ?? 0,
+      nasabah_aktif: rk.nasabah_aktif ?? 0,
+    },
+    tren: d.tren ?? [],
+    status: d.status ?? [],
+    top_nasabah: d.top_nasabah ?? [],
+    arus_kas: d.arus_kas ?? {
+      masuk_pembayaran: 0, masuk_lain: 0, keluar_pencairan: 0, keluar_lain: 0,
+    },
+    metode: d.metode ?? [],
+    kinerja: d.kinerja ?? [],
+  }
+}
+
 export async function fetchLaporanRingkasan(): Promise<LaporanRingkasan> {
   const { data, error } = await supabase.rpc('laporan_ringkasan')
   if (error) throw error

@@ -60,3 +60,48 @@
 .dm-modal {
   animation: dm-zoom-in 0.2s ease-out;
 }
+
+/* ============================================================
+   Laporan Bulanan — gaya khusus cetak (PDF)
+   ------------------------------------------------------------
+   Halaman Laporan punya dua mode: tampilan layar (kartu, grafik,
+   kontrol periode) dan mode cetak. Saat window.print() dipanggil,
+   aturan di bawah menyembunyikan semua yang tidak perlu di kertas
+   (navigasi, tombol, pencarian) dan memaksa layout jadi satu kolom
+   dengan latar putih, supaya hasil "Save as PDF" rapi.
+   ============================================================ */
+@media print {
+  /* Sembunyikan kerangka aplikasi */
+  body * {
+    visibility: hidden;
+  }
+  #laporan-cetak,
+  #laporan-cetak * {
+    visibility: visible;
+  }
+  #laporan-cetak {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    padding: 0;
+    margin: 0;
+    background: #fff;
+  }
+  /* Elemen yang tidak ikut tercetak */
+  .no-print {
+    display: none !important;
+  }
+  /* Kartu & grafik jangan terpotong antar halaman */
+  .print-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .print-new-page {
+    break-before: page;
+    page-break-before: always;
+  }
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+}

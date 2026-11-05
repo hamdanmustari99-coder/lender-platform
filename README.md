@@ -9,7 +9,7 @@ lender-platform/
 ├── admin/      → React+TS+Vite: dashboard, pinjaman, nasabah (kartu), arus kas, setoran, laporan
 └── supabase/
     ├── schema.sql                 → skema DB + RLS + RPC (jalankan sekali di SQL Editor)
-    ├── migrations/                → migrasi bertahap (M14–M25); jalankan via `supabase db push`
+    ├── migrations/                → migrasi bertahap (M14–M26); jalankan via `supabase db push`
     └── functions/danaku-api/      → Edge Function: buat/hapus akun nasabah (service_role)
 ```
 
@@ -99,14 +99,44 @@ admin mencatat manual suntikan modal owner, biaya operasional, penarikan profit.
 Status keandalan nasabah (M23): LANCAR | PERINGATAN | MACET — otomatis dari riwayat cicilan.
 Setoran: admin catat tunai → owner rekonsiliasi per hari (agregasi WIB)
 Koreksi: salah input → void_payment / void_and_repay (reversal beraudit, alasan wajib)
+Laporan Bulanan (M26): satu RPC `laporan_bulanan(bulan, tahun)` → 8 seksi
+(ringkasan, tren 6 bulan, sebaran status, top 5 piutang, arus kas, metode bayar,
+kinerja pencatat) + ekspor PDF (print A4) & CSV (3 berkas, BOM UTF-8)
 ```
+
+## Laporan Bulanan (M26)
+
+Halaman **Laporan** bukan tabel daftar lagi — satu RPC `laporan_bulanan(p_bulan, p_tahun)`
+mengembalikan seluruh angka untuk periode terpilih, divisualkan:
+
+| Seksi | Isi |
+|---|---|
+| Ringkasan eksekutif | pencairan, pinjaman/nasabah baru, jatuh tempo, terkumpul bersih, laba bunga |
+| Kolektibilitas | bar persentase (hijau ≥80% / kuning ≥50% / merah) + kas masuk/keluar/bersih |
+| Status keandalan | donat LANCAR/PERINGATAN/MACET + sisa per status |
+| Tren 6 bulan | bar chart pencairan vs terkumpul vs jatuh tempo |
+| 5 piutang terbesar | bar-list berwarna sesuai status |
+| Metode & kinerja | metode pembayaran + transaksi per pencatat |
+| Perlu tindakan | daftar nasabah nunggak |
+
+**Ekspor:**
+- **PDF** — tombol "Unduh PDF" memanggil `window.print()`. Stylesheet `@media print`
+  di `admin/src/index.css` menyembunyikan sidebar & kontrol, menambah kop laporan,
+  dan mencegah kartu/grafik terpotong antar halaman (`break-inside: avoid`, `@page` A4).
+  Hasilnya PDF dengan teks asli (bisa di-select/search), tanpa library tambahan.
+- **CSV** — tombol "Unduh CSV" mengunduh 3 berkas: `laporan_<tahun>-<bulan>_ringkasan.csv`,
+  `_tren.csv`, `_top_nasabah.csv`. BOM UTF-8 disertakan supaya Excel Windows
+  menampilkan karakter Indonesia dengan benar.
+
+Catatan: `terkumpul_bersih` = terkumpul − koreksi (pembayaran yang di-void), dan
+`pencairan` mengecualikan pinjaman `rejected` — keduanya hasil koreksi M26c.
 
 ## Skala besar (M20)
 
 Aplikasi sudah disiapkan untuk ribuan nasabah / puluhan ribu cicilan:
 
 - **Paginasi** — daftar nasabah (50/halaman) & setoran; search nama/email/telepon/NIK.
-- **Agregasi di Postgres** — RPC `laporan_ringkasan()`, `list_nasabah(...)`, `setoran_harian(...)`. Browser tidak lagi menarik semua baris lalu menghitung sendiri.
+- **Agregasi di Postgres** — RPC `laporan_ringkasan()`, `laporan_bulanan(...)` (M26), `list_nasabah(...)`, `setoran_harian(...)`. Browser tidak lagi menarik semua baris lalu menghitung sendiri.
 - **12 index** untuk pola query sort/filter/join yang dipakai UI.
 - **Rincian transaksi on-demand** — halaman Setoran hanya mengambil detail saat baris di-expand.
 
@@ -117,7 +147,7 @@ Zona waktu: semua perhitungan tanggal memakai **`Asia/Jakarta`** (server Supabas
 - RLS aktif di semua tabel; pemilik data cuma lihat data miliknya, semua operasi tulis lewat `is_admin()`.
 - Tidak ada policy INSERT di `profiles` — profile dibuat trigger, jadi tidak bisa self-insert `role='admin'`.
 - Trigger guard: pemilik data tidak bisa ubah `role`/`kyc_status` sendiri, dan tidak bisa set `interest_rate`/`status`/`monthly_payment` sendiri saat insert loan.
-- RPC sensitif (`approve_loan`, `reject_loan`, `record_cash_payment`, `void_payment`, `laporan_ringkasan`, `list_nasabah`, `setoran_harian`) cek `is_admin()` (security definer).
+- RPC sensitif (`record_cash_payment`, `void_payment`, `laporan_ringkasan`, `laporan_bulanan`, `list_nasabah`, `setoran_harian`) cek `is_admin()` (security definer).
 - `service_role` **hanya** di Edge Function, tidak pernah di client.
 - Bucket KYC private; path di-scopes per-user `{uid}/...`, dibaca via signed URL.
 - Admin web: **nol dialog bawaan browser** (`window.confirm/prompt/alert`) — semua konfirmasi pakai modal React.
