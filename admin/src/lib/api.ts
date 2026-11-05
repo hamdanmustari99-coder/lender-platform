@@ -252,6 +252,20 @@ export interface NasabahRow {
   created_at: string
   /** Pernah punya cicilan lewat jatuh tempo (badge telat) */
   telat: boolean
+  /** Status keandalan otomatis dari riwayat cicilan (M23) */
+  status_keandalan?: StatusKeandalan | null
+  /** Alamat rumah + shareloc (M24) */
+  alamat_rumah?: string | null
+  home_lat?: number | null
+  home_lng?: number | null
+  /** Alamat kantor + shareloc (M24) */
+  alamat_kantor?: string | null
+  office_lat?: number | null
+  office_lng?: number | null
+  /** Jumlah pinjaman berjalan (disbursed/active) */
+  pinjaman_aktif?: number
+  /** Agunan yang ditahan, dari pinjaman berjalan (M24) */
+  jaminan?: { tipe: string; detail: string; status: string }[]
 }
 
 export interface ListNasabahResult {

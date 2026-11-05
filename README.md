@@ -6,10 +6,10 @@ Platform pinjaman mikro dengan penagihan door-to-door: **admin web (React+TS+Vit
 
 ```
 lender-platform/
-├── admin/      → React+TS+Vite: dashboard, pinjaman, nasabah, arus kas, setoran, laporan
+├── admin/      → React+TS+Vite: dashboard, pinjaman, nasabah (kartu), arus kas, setoran, laporan
 └── supabase/
     ├── schema.sql                 → skema DB + RLS + RPC (jalankan sekali di SQL Editor)
-    ├── migrations/                → migrasi bertahap (M14–M23); jalankan via `supabase db push`
+    ├── migrations/                → migrasi bertahap (M14–M24); jalankan via `supabase db push`
     └── functions/danaku-api/      → Edge Function: buat/hapus akun nasabah (service_role)
 ```
 
