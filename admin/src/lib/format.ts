@@ -17,34 +17,32 @@ export const fmtDate = (d: string | null | undefined): string =>
     : '—'
 
 export const LOAN_STATUS_LABEL: Record<LoanStatus, string> = {
-  submitted: 'Menunggu Review',
-  under_review: 'Sedang Review',
-  approved: 'Disetujui',
-  rejected: 'Ditolak',
   disbursed: 'Dicairkan',
   active: 'Aktif',
   completed: 'Lunas',
+  rejected: 'Ditolak',
 }
 
 export const LOAN_STATUS_CLASS: Record<LoanStatus, string> = {
-  submitted: 'bg-slate-100 text-slate-700',
-  under_review: 'bg-amber-100 text-amber-800',
-  approved: 'bg-emerald-100 text-emerald-800',
-  rejected: 'bg-red-100 text-red-700',
   disbursed: 'bg-sky-100 text-sky-800',
   active: 'bg-indigo-100 text-indigo-800',
   completed: 'bg-teal-100 text-teal-800',
+  rejected: 'bg-red-100 text-red-700',
 }
 
 /** warna slice pie chart per status */
 export const LOAN_STATUS_COLOR: Record<LoanStatus, string> = {
-  submitted: '#94a3b8',
-  under_review: '#f59e0b',
-  approved: '#10b981',
-  rejected: '#ef4444',
   disbursed: '#0ea5e9',
   active: '#6366f1',
   completed: '#14b8a6',
+  rejected: '#ef4444',
+}
+
+/** M23: status keandalan nasabah */
+export const STATUS_KEANDALAN_CLASS: Record<string, string> = {
+  LANCAR: 'bg-emerald-100 text-emerald-800',
+  PERINGATAN: 'bg-amber-100 text-amber-800',
+  MACET: 'bg-rose-100 text-rose-800',
 }
 
 export const KYC_STATUS_CLASS: Record<string, string> = {

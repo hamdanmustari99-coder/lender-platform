@@ -446,13 +446,13 @@ export default function NasabahBaru() {
     }
   }
 
-  const inp = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none'
+  const inp = 'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none'
   const lbl = 'mb-1 block text-xs font-medium text-slate-600'
 
   return (
     <div className="max-w-2xl space-y-4">
-      <Link to="/users" className="text-sm text-emerald-600 hover:underline">← Kembali ke daftar users</Link>
-      <h1 className="text-2xl font-bold text-slate-800">➕ Daftarkan Nasabah</h1>
+      <Link to="/users" className="text-sm text-primary-600 hover:underline">← Kembali ke daftar users</Link>
+      <h1 className="text-2xl font-black tracking-tight text-slate-900">➕ Daftarkan Nasabah</h1>
       <p className="-mt-2 text-sm text-slate-500">Owner daftarkan langsung. Foto tersimpan di cloud — aman dari HP hilang.</p>
 
       {error && (
@@ -466,16 +466,16 @@ export default function NasabahBaru() {
         </div>
       )}
       {done && (
-        <div className="space-y-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+        <div className="space-y-2 rounded-lg bg-primary-50 px-4 py-3 text-sm text-primary-800">
           <div>{done}</div>
-          <button onClick={() => nav('/users')} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700">Lihat di daftar users →</button>
+          <button onClick={() => nav('/users')} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-primary-700">Lihat di daftar users →</button>
         </div>
       )}
 
       {/* A. FOTO KTP + OCR */}
-      <div className="space-y-3 rounded-xl bg-white p-5 shadow-sm">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="text-sm font-semibold text-slate-700">a. Foto KTP + ekstrak otomatis</div>
-        <label className="block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 px-4 py-6 text-center hover:border-emerald-500 hover:bg-emerald-50">
+        <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-6 text-center hover:border-primary-500 hover:bg-primary-50">
           <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }} />
           <div className="text-3xl">📷</div>
           <div className="mt-1 text-sm font-medium text-slate-700">{ktpFile ? ktpFile.name : 'Klik untuk pilih foto KTP'}</div>
@@ -520,7 +520,7 @@ export default function NasabahBaru() {
       </div>
 
       {/* B-C-D-E. DOMISILI + KANTOR + SHARELOC */}
-      <div className="space-y-3 rounded-xl bg-white p-5 shadow-sm">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="text-sm font-semibold text-slate-700">b–e. Domisili, kantor & share location</div>
         <div><label className={lbl}>Alamat tinggal saat ini *</label>
           <textarea rows={2} value={domisili} onChange={(e) => setDomisili(e.target.value)} placeholder="cth: Jl. Mawar No. 12, Cibiru, Bandung" className={inp} /></div>
@@ -531,7 +531,7 @@ export default function NasabahBaru() {
               {resolveBusy === 'rumah' ? '…' : '🎯 Cari'}
             </button>
           </div>
-          {domisiliFinal && <a href={`https://maps.google.com/?q=${domisiliFinal.lat},${domisiliFinal.lng}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 hover:underline">📍 {domisiliFinal.lat.toFixed(6)}, {domisiliFinal.lng.toFixed(6)} — buka peta</a>}</div>
+          {domisiliFinal && <a href={`https://maps.google.com/?q=${domisiliFinal.lat},${domisiliFinal.lng}`} target="_blank" rel="noreferrer" className="text-xs text-primary-600 hover:underline">📍 {domisiliFinal.lat.toFixed(6)}, {domisiliFinal.lng.toFixed(6)} — buka peta</a>}</div>
         <div><label className={lbl}>Alamat kantor</label>
           <textarea rows={2} value={kantor} onChange={(e) => setKantor(e.target.value)} placeholder="cth: Pasar Cibiru Blok B No. 5" className={inp} /></div>
         <div><label className={lbl}>Link Maps kantor</label>
@@ -541,16 +541,16 @@ export default function NasabahBaru() {
               {resolveBusy === 'kantor' ? '…' : '🎯 Cari'}
             </button>
           </div>
-          {kantorFinal && <a href={`https://maps.google.com/?q=${kantorFinal.lat},${kantorFinal.lng}`} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 hover:underline">📍 {kantorFinal.lat.toFixed(6)}, {kantorFinal.lng.toFixed(6)} — buka peta</a>}</div>
+          {kantorFinal && <a href={`https://maps.google.com/?q=${kantorFinal.lat},${kantorFinal.lng}`} target="_blank" rel="noreferrer" className="text-xs text-primary-600 hover:underline">📍 {kantorFinal.lat.toFixed(6)}, {kantorFinal.lng.toFixed(6)} — buka peta</a>}</div>
       </div>
 
       {/* F-G. KONTAK + FOTO */}
-      <div className="space-y-3 rounded-xl bg-white p-5 shadow-sm">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="text-sm font-semibold text-slate-700">f–g. Kontak & foto nasabah</div>
         <div><label className={lbl}>No. HP aktif (format 08…) *</label>
           <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value.trim())} placeholder="cth: 081234567890" className={inp} /></div>
         <div><label className={lbl}>Foto nasabah</label>
-          <label className="block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-emerald-500 hover:bg-emerald-50">
+          <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-primary-500 hover:bg-primary-50">
             <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFotoFile(f); pickPreview(f, setFotoPrev); e.target.value = '' }} />
             <div className="text-2xl">🤳</div>
             <div className="mt-1 text-sm font-medium text-slate-700">{fotoFile ? fotoFile.name : 'Klik untuk pilih foto nasabah'}</div>
@@ -559,7 +559,7 @@ export default function NasabahBaru() {
       </div>
 
       {/* H. JAMINAN */}
-      <div className="space-y-3 rounded-xl bg-white p-5 shadow-sm">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="text-sm font-semibold text-slate-700">h. Jaminan + bukti foto</div>
         <div className="grid gap-3 sm:grid-cols-2">
           <div><label className={lbl}>Jenis jaminan</label>
@@ -571,7 +571,7 @@ export default function NasabahBaru() {
             <input value={jaminanDetail} onChange={(e) => setJaminanDetail(e.target.value)} placeholder="cth: Beat 2021 D 1234 AB" className={inp} /></div>
         </div>
         <div><label className={lbl}>Foto bukti (bisa banyak, max 5)</label>
-          <label className="block cursor-pointer rounded-xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-emerald-500 hover:bg-emerald-50">
+          <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-primary-500 hover:bg-primary-50">
             <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
               const fs = [...(e.target.files ?? [])].slice(0, 5); setBuktiFiles(fs)
               setBuktiPrev([]); fs.forEach((f) => { const r = new FileReader(); r.onload = () => setBuktiPrev((p) => [...p, String(r.result || '')]); r.readAsDataURL(f) })
@@ -584,9 +584,9 @@ export default function NasabahBaru() {
       </div>
 
       {/* SUBMIT */}
-      <div className="space-y-3 rounded-xl bg-white p-5 shadow-sm">
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <p className="text-xs text-slate-400">Nasabah tidak mendapat akun login — aplikasi hanya dipakai owner/admin.</p>
-        <button disabled={busy || !valid} onClick={() => void submit()} className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">
+        <button disabled={busy || !valid} onClick={() => void submit()} className="w-full rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50">
           {busy ? 'Mendaftarkan…' : 'Daftarkan Nasabah'}
         </button>
         {!valid && (

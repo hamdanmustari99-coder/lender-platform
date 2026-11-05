@@ -4,15 +4,7 @@ import { fetchLoans, subscribeToTables } from '../lib/api'
 import type { Loan, LoanStatus } from '../lib/api'
 import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
-const STATUSES: LoanStatus[] = [
-  'submitted',
-  'under_review',
-  'approved',
-  'rejected',
-  'disbursed',
-  'active',
-  'completed',
-]
+const STATUSES: LoanStatus[] = ['disbursed', 'active', 'completed', 'rejected']
 
 export default function Loans() {
   const [loans, setLoans] = useState<Loan[]>([])
@@ -43,8 +35,9 @@ export default function Loans() {
       if (statusFilter !== 'all' && l.status !== statusFilter) return false
       if (!q) return true
       const name = l.profiles?.full_name?.toLowerCase() ?? ''
-      const email = l.profiles?.email?.toLowerCase() ?? ''
-      return name.includes(q) || email.includes(q)
+      const nik = l.profiles?.nik?.toLowerCase() ?? ''
+      const phone = l.profiles?.phone?.toLowerCase() ?? ''
+      return name.includes(q) || nik.includes(q) || phone.includes(q)
     })
   }, [loans, statusFilter, search])
 
@@ -53,10 +46,10 @@ export default function Loans() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-800">Pinjaman</h1>
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">Pinjaman</h1>
         <Link
           to="/loans/new"
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
         >
           + Buatkan Pinjaman
         </Link>
@@ -68,10 +61,10 @@ export default function Loans() {
 
       <div className="flex flex-wrap items-center gap-2">
         <input
-          placeholder="Cari nama / email…"
+          placeholder="Cari nama / NIK / telepon…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-64 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+          className="w-64 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
         />
         <button
           onClick={() => setStatusFilter('all')}
@@ -98,7 +91,7 @@ export default function Loans() {
         ))}
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
@@ -119,7 +112,10 @@ export default function Loans() {
                   <div className="font-medium text-slate-800">
                     {l.profiles?.full_name || '(tanpa nama)'}
                   </div>
-                  <div className="text-xs text-slate-500">{l.profiles?.email}</div>
+                  <div className="text-xs text-slate-500">
+                    {l.profiles?.nik || '—'}
+                    {l.profiles?.phone ? ` • ${l.profiles.phone}` : ''}
+                  </div>
                 </td>
                 <td className="px-4 py-3 font-medium text-slate-800">
                   {fmtRp(l.amount)}
@@ -151,7 +147,7 @@ export default function Loans() {
                 <td className="px-4 py-3 text-right">
                   <Link
                     to={`/loans/${l.id}`}
-                    className="text-xs font-medium text-emerald-600 hover:underline"
+                    className="text-xs font-medium text-primary-600 hover:underline"
                   >
                     Detail →
                   </Link>

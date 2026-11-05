@@ -112,10 +112,10 @@ export default function LoanNew() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <Link to="/loans" className="text-sm text-emerald-600 hover:underline">
+      <Link to="/loans" className="text-sm text-primary-600 hover:underline">
         ← Kembali ke daftar pinjaman
       </Link>
-      <h1 className="text-2xl font-bold text-slate-800">Buatkan Pinjaman</h1>
+      <h1 className="text-2xl font-black tracking-tight text-slate-900">Buatkan Pinjaman</h1>
       <p className="text-sm text-slate-500">
         Admin membuat pinjaman langsung untuk nasabah — nominal final, langsung cair.
       </p>
@@ -127,7 +127,7 @@ export default function LoanNew() {
         <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
       )}
 
-      <form onSubmit={submit} className="space-y-4 rounded-xl bg-white p-5 shadow-sm">
+      <form onSubmit={submit} className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         {/* Pilih nasabah (filter role nasabah + search) */}
         <div>
           <label htmlFor="nasabah-search" className="mb-1 block text-xs font-medium text-slate-600">
@@ -138,27 +138,29 @@ export default function LoanNew() {
             placeholder="Cari nama / email / NIK…"
             value={nasabahSearch}
             onChange={(e) => setNasabahSearch(e.target.value)}
-            className="mb-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            className="mb-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
           <select
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
             required
             disabled={loadingNasabah}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           >
             <option value="">
               {loadingNasabah ? 'Memuat nasabah…' : `-- Pilih nasabah (${nasabahList.length}) --`}
             </option>
             {nasabahList.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.full_name || '(tanpa nama)'} — {p.email}
+                {p.full_name || '(tanpa nama)'}
+                {p.nik ? ` — NIK ${p.nik}` : ''}
               </option>
             ))}
           </select>
           {selected && (
             <p className="mt-1 text-xs text-slate-500">
-              Terpilih: {selected.full_name} ({selected.email})
+              Terpilih: {selected.full_name}
+              {selected.nik ? ` — NIK ${selected.nik}` : ''}
             </p>
           )}
         </div>
@@ -177,7 +179,7 @@ export default function LoanNew() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             required
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
           <p className="mt-1 text-xs text-slate-400">
             Rp50.000 – Rp20.000.000
@@ -195,7 +197,7 @@ export default function LoanNew() {
               id="loan-freq"
               value={frequency}
               onChange={(e) => setFrequency(e.target.value as 'weekly' | 'monthly')}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             >
               <option value="monthly">Bulanan</option>
               <option value="weekly">Mingguan</option>
@@ -209,7 +211,7 @@ export default function LoanNew() {
               id="loan-tenor"
               value={tenor}
               onChange={(e) => setTenor(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             >
               {tenors.map((t) => (
                 <option key={t} value={t}>
@@ -231,7 +233,7 @@ export default function LoanNew() {
             onChange={(e) => setPurpose(e.target.value)}
             rows={2}
             placeholder="Contoh: modal warung…"
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
         </div>
 
@@ -246,7 +248,7 @@ export default function LoanNew() {
               value={collateralType}
               onChange={(e) => setCollateralType(e.target.value)}
               placeholder="Contoh: BPKB motor"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             />
           </div>
           <div>
@@ -258,7 +260,7 @@ export default function LoanNew() {
               value={collateralDetail}
               onChange={(e) => setCollateralDetail(e.target.value)}
               placeholder="Contoh: Honda Beat 2020, B 1234 XY"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             />
           </div>
         </div>
@@ -266,7 +268,7 @@ export default function LoanNew() {
         <button
           type="submit"
           disabled={busy || loadingNasabah}
-          className="w-full rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+          className="w-full rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
         >
           {busy ? 'Menyimpan…' : 'Buat & Cairkan Pinjaman'}
         </button>

@@ -93,12 +93,12 @@ export default function UserDetail() {
 
   return (
     <div className="space-y-4">
-      <Link to="/users" className="text-sm text-emerald-600 hover:underline">
+      <Link to="/users" className="text-sm text-primary-600 hover:underline">
         ← Kembali ke daftar user
       </Link>
 
       <div className="flex flex-wrap items-center gap-3">
-        <h1 className="text-2xl font-bold text-slate-800">
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">
           {profile.full_name || '(tanpa nama)'}
         </h1>
         {telatFlag === true && (
@@ -107,7 +107,7 @@ export default function UserDetail() {
           </span>
         )}
         {telatFlag === false && (
-          <span className="rounded-full bg-emerald-600 px-3 py-1 text-sm font-bold text-white">
+          <span className="rounded-full bg-primary-600 px-3 py-1 text-sm font-bold text-white">
             LANCAR
           </span>
         )}
@@ -115,7 +115,7 @@ export default function UserDetail() {
 
       {/* Foto & dokumen nasabah */}
       <div className="grid gap-4 sm:grid-cols-3">
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-2 text-xs font-semibold text-slate-500">Foto Nasabah</div>
           {fotoNasabah ? (
             <a href={fotoNasabah} target="_blank" rel="noreferrer">
@@ -131,7 +131,7 @@ export default function UserDetail() {
             </div>
           )}
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-2 text-xs font-semibold text-slate-500">Foto KTP</div>
           {ktpDocs.length > 0 ? (
             <a href={ktpDocs[0].url} target="_blank" rel="noreferrer">
@@ -147,7 +147,7 @@ export default function UserDetail() {
             </div>
           )}
         </div>
-        <div className="rounded-xl bg-white p-4 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-2 text-xs font-semibold text-slate-500">Jaminan</div>
           {jaminanDocs.filter((d) => d.url).length > 0 ? (
             <a href={jaminanDocs.find((d) => d.url)!.url} target="_blank" rel="noreferrer">
@@ -167,7 +167,7 @@ export default function UserDetail() {
 
       {/* Detail jaminan (semua foto + keterangan) */}
       {jaminanDocs.length > 0 && (
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 text-sm font-semibold text-slate-700">
             Detail Jaminan ({jaminanDocs.length})
           </div>
@@ -198,7 +198,7 @@ export default function UserDetail() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 text-sm font-semibold text-slate-700">Profil (KTP)</div>
           <dl className="space-y-2 text-sm">
             <Row label="No. HP Utama" value={profile.phone || '—'} />
@@ -237,7 +237,7 @@ export default function UserDetail() {
           </div>
         </div>
 
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
             <div className="text-sm font-semibold text-slate-700">
               Riwayat Pinjaman ({loans.length})
@@ -285,7 +285,7 @@ export default function UserDetail() {
         </div>
       </div>
 
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 text-sm font-semibold text-slate-700">Domisili &amp; Kantor</div>
         <dl className="space-y-3 text-sm">
           <div>
@@ -297,7 +297,7 @@ export default function UserDetail() {
                   href={homeMaps}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs font-medium text-emerald-600 hover:underline"
+                  className="text-xs font-medium text-primary-600 hover:underline"
                 >
                   📍 Lihat di Google Maps
                 </a>
@@ -318,7 +318,7 @@ export default function UserDetail() {
                   href={officeMaps}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs font-medium text-emerald-600 hover:underline"
+                  className="text-xs font-medium text-primary-600 hover:underline"
                 >
                   📍 Lihat di Google Maps
                 </a>
@@ -333,7 +333,7 @@ export default function UserDetail() {
         </dl>
       </div>
 
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 text-sm font-semibold text-slate-700">Riwayat Pembayaran</div>
         {loans.length === 0 && (
           <div className="py-4 text-center text-sm text-slate-400">Belum ada pinjaman</div>
@@ -345,7 +345,7 @@ export default function UserDetail() {
             return (
               <div key={l.id} className="rounded-lg border border-slate-200 p-4">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-sm">
-                  <Link to={`/loans/${l.id}`} className="font-semibold text-emerald-700 hover:underline">
+                  <Link to={`/loans/${l.id}`} className="font-semibold text-primary-700 hover:underline">
                     {fmtRp(l.amount)}
                   </Link>
                   <span className="text-xs text-slate-500">
@@ -357,7 +357,7 @@ export default function UserDetail() {
                   {list.length > 0 && (
                     <span
                       className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                        telatCount > 0 ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                        telatCount > 0 ? 'bg-red-100 text-red-700' : 'bg-primary-100 text-primary-700'
                       }`}
                     >
                       {telatCount > 0 ? `${telatCount} cicilan telat` : 'Tidak ada telat'}

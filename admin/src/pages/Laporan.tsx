@@ -53,7 +53,7 @@ export default function Laporan() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-slate-800">Laporan</h1>
+      <h1 className="text-2xl font-black tracking-tight text-slate-900">Laporan</h1>
 
       {error && (
         <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
@@ -61,26 +61,26 @@ export default function Laporan() {
 
       {/* Kartu ringkasan */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-xs text-slate-500">Total Tagihan</div>
           <div className="mt-1 text-xl font-bold text-slate-800">{fmtRp(totalTagihan)}</div>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-xs text-slate-500">Sudah Masuk</div>
-          <div className="mt-1 text-xl font-bold text-emerald-600">{fmtRp(totalBayar)}</div>
+          <div className="mt-1 text-xl font-bold text-primary-600">{fmtRp(totalBayar)}</div>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-xs text-slate-500">Sisa Piutang</div>
           <div className="mt-1 text-xl font-bold text-amber-600">{fmtRp(totalSisa)}</div>
         </div>
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="text-xs text-slate-500">Laba Kotor (bunga)</div>
           <div className="mt-1 text-xl font-bold text-indigo-600">{fmtRp(laba)}</div>
         </div>
       </div>
 
       {/* Nunggak */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 text-sm font-semibold text-slate-700">
           ⚠️ Nunggak ({nunggakRows.length} nasabah)
         </div>
@@ -115,7 +115,7 @@ export default function Laporan() {
       </div>
 
       {/* Piutang per nasabah */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 text-sm font-semibold text-slate-700">
           Sisa Piutang per Nasabah
         </div>
@@ -134,13 +134,13 @@ export default function Laporan() {
                 <td className="py-2.5 font-medium text-slate-800">
                   <Link
                     to={`/users/${r.nasabahId}`}
-                    className="hover:text-emerald-700 hover:underline"
+                    className="hover:text-primary-700 hover:underline"
                   >
                     {r.nama}
                   </Link>
                 </td>
                 <td className="py-2.5 text-slate-600">{fmtRp(r.totalTagihan)}</td>
-                <td className="py-2.5 text-emerald-700">{fmtRp(r.totalBayar)}</td>
+                <td className="py-2.5 text-primary-700">{fmtRp(r.totalBayar)}</td>
                 <td className="py-2.5 font-bold text-slate-800">{fmtRp(r.sisa)}</td>
               </tr>
             ))}

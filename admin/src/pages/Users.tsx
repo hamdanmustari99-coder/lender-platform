@@ -79,10 +79,10 @@ export default function Users() {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-800">Users</h1>
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">Users</h1>
         <Link
           to="/users/new"
-          className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700"
+          className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
         >
           ➕ Daftarkan Nasabah
         </Link>
@@ -97,7 +97,7 @@ export default function Users() {
           placeholder="Cari nama / email / telepon / NIK…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+          className="w-72 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
         />
         <span className="text-xs text-slate-500">
           {total} user{total === 1 ? '' : 's'}
@@ -105,7 +105,7 @@ export default function Users() {
         </span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
@@ -147,7 +147,7 @@ export default function Users() {
                       Telat
                     </span>
                   ) : (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">
+                    <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs text-primary-700">
                       Lancar
                     </span>
                   )}
@@ -157,7 +157,7 @@ export default function Users() {
                   <div className="flex items-center justify-end gap-2">
                     <Link
                       to={`/users/${p.id}`}
-                      className="text-xs font-medium text-emerald-600 hover:underline"
+                      className="text-xs font-medium text-primary-600 hover:underline"
                     >
                       Detail →
                     </Link>

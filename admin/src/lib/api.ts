@@ -3,14 +3,8 @@ import { supabase } from './supabase'
 // ---------- Tipe (kontrak: ../supabase/schema.sql) ----------
 
 export type KycStatus = 'pending' | 'verified' | 'rejected'
-export type LoanStatus =
-  | 'submitted'
-  | 'under_review'
-  | 'approved'
-  | 'rejected'
-  | 'disbursed'
-  | 'active'
-  | 'completed'
+export type StatusKeandalan = 'LANCAR' | 'PERINGATAN' | 'MACET'
+export type LoanStatus = 'disbursed' | 'active' | 'completed' | 'rejected'
 export type InstallmentStatus = 'unpaid' | 'paid' | 'overdue'
 
 export interface Profile {
@@ -42,6 +36,7 @@ export interface Profile {
   kewarganegaraan: string | null
   phone: string | null
   foto_path: string | null
+  status_keandalan: StatusKeandalan
   kyc_status: KycStatus
   created_at: string
 }
@@ -131,7 +126,7 @@ export interface PendingKycProfile extends Profile {
 export async function fetchLoans(): Promise<Loan[]> {
   const { data, error } = await supabase
     .from('loans')
-    .select('*, profiles!loans_user_id_fkey(full_name, email, kyc_status, phone)')
+    .select('*, profiles!loans_user_id_fkey(full_name, nik, kyc_status, phone)')
     .order('created_at', { ascending: false })
   if (error) throw error
   return (data ?? []) as Loan[]
@@ -140,7 +135,7 @@ export async function fetchLoans(): Promise<Loan[]> {
 export async function fetchLoansByUser(userId: string): Promise<Loan[]> {
   const { data, error } = await supabase
     .from('loans')
-    .select('*, profiles!loans_user_id_fkey(full_name, email, kyc_status, phone)')
+    .select('*, profiles!loans_user_id_fkey(full_name, nik, kyc_status, phone)')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
   if (error) throw error
@@ -151,7 +146,7 @@ export async function fetchLoan(id: string): Promise<Loan | null> {
   const { data, error } = await supabase
     .from('loans')
     .select(
-      '*, profiles!loans_user_id_fkey(full_name, email, kyc_status, phone, nik, address, tempat_lahir, birth_date, jenis_kelamin, rt_rw, kelurahan, kecamatan, kota, provinsi, agama, status_kawin, pekerjaan, kewarganegaraan)',
+      '*, profiles!loans_user_id_fkey(full_name, kyc_status, phone, nik, address, tempat_lahir, birth_date, jenis_kelamin, rt_rw, kelurahan, kecamatan, kota, provinsi, agama, status_kawin, pekerjaan, kewarganegaraan)',
     )
     .eq('id', id)
     .maybeSingle()
@@ -543,14 +538,6 @@ export function totalLaba(loans: Loan[]): number {
 
 // ---------- RPC (security definer, cek is_admin() di server) ----------
 
-export async function approveLoan(loanId: string, finalAmount?: number): Promise<void> {
-  const { error } = await supabase.rpc('approve_loan', {
-    p_loan_id: loanId,
-    ...(finalAmount != null ? { p_amount_override: finalAmount } : {}),
-  })
-  if (error) throw error
-}
-
 /** v3.0: admin buatkan pinjaman langsung (nominal WA = final, langsung cair). */
 export async function adminCreateLoan(input: {
   userId: string
@@ -635,14 +622,6 @@ export async function deleteNasabah(userId: string): Promise<void> {
     body: JSON.stringify({ action: 'delete-nasabah', user_id: userId }),
   })
   if (!res.ok) await edgeErr(res)
-}
-
-export async function rejectLoan(loanId: string, reason: string): Promise<void> {
-  const { error } = await supabase.rpc('reject_loan', {
-    p_loan_id: loanId,
-    p_reason: reason,
-  })
-  if (error) throw error
 }
 
 export async function payInstallment(installmentId: string): Promise<void> {
@@ -847,3 +826,94 @@ export function subscribeToTables(tables: string[], onChange: () => void): () =>
     void supabase.removeChannel(channel)
   }
 }
+
+// ---------- M23: Arus Kas (kas masuk / keluar) ----------
+
+export type CashTipe = 'MASUK' | 'KELUAR'
+
+export interface CashTransaction {
+  id: string
+  tipe: CashTipe
+  kategori: string
+  loan_id: string | null
+  nasabah_id: string | null
+  pihak: string
+  metode: string
+  nominal: number
+  catatan: string
+  dicatat_oleh: string | null
+  created_at: string
+}
+
+export interface KasHarianRow {
+  tanggal: string
+  masuk: number
+  keluar: number
+  net: number
+  jumlah: number
+}
+
+/** Ringkasan kas per hari (WIB), paginasi. */
+export async function fetchKasHarian(params: {
+  page?: number
+  pageSize?: number
+  dari?: string
+  sampai?: string
+}): Promise<{ rows: KasHarianRow[]; total: number }> {
+  const { data, error } = await supabase.rpc('kas_harian', {
+    p_page: params.page ?? 1,
+    p_page_size: params.pageSize ?? 50,
+    p_dari: params.dari ?? null,
+    p_sampai: params.sampai ?? null,
+  })
+  if (error) throw error
+  const r = data as { rows: KasHarianRow[]; total: number }
+  return { rows: r.rows ?? [], total: r.total ?? 0 }
+}
+
+/** Detail transaksi kas satu tanggal (WIB). */
+export async function fetchCashByDate(date: string): Promise<CashTransaction[]> {
+  const { data, error } = await supabase
+    .from('cash_transactions')
+    .select('*')
+    .gte('created_at', `${date}T00:00:00+07:00`)
+    .lt('created_at', `${date}T23:59:59.999+07:00`)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return (data as CashTransaction[]) ?? []
+}
+
+/** Catat transaksi kas manual (modal owner, operasional, penarikan profit). */
+export async function createCashTransaction(input: {
+  tipe: CashTipe
+  kategori: string
+  nominal: number
+  pihak?: string
+  metode?: string
+  catatan?: string
+  nasabahId?: string | null
+}): Promise<void> {
+  const { error } = await supabase.from('cash_transactions').insert({
+    tipe: input.tipe,
+    kategori: input.kategori,
+    nominal: input.nominal,
+    pihak: input.pihak ?? '',
+    metode: input.metode ?? 'Tunai',
+    catatan: input.catatan ?? '',
+    nasabah_id: input.nasabahId ?? null,
+  })
+  if (error) throw error
+}
+
+export const CASH_KATEGORI_MASUK = [
+  'Pembayaran Angsuran/Pelunasan',
+  'Suntikan Modal Owner',
+  'Pendapatan Lain',
+] as const
+
+export const CASH_KATEGORI_KELUAR = [
+  'Pencairan Pinjaman',
+  'Biaya Operasional',
+  'Penarikan Profit Owner',
+  'Pengeluaran Lain',
+] as const

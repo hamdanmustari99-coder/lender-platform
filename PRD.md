@@ -1,8 +1,8 @@
 # PRD — Danaku Bank Keliling Platform
 
-**Versi:** 4.0 (Revisi operasional 5 Nov 2026 — M14 s/d M22, model satu peran)
+**Versi:** 5.0 (Revisi operasional 5 Nov 2026 — M23: model DanaModal, hapus alur approval, Arus Kas, redesign UI)
 **Tanggal:** 5 Nov 2026
-**Status:** In Development — v4.0 (fondasi skala besar + model satu peran admin/owner)
+**Status:** In Development — v5.0 (model DanaModal + Arus Kas + redesign UI sesuai mockup acuan)
 **Pemilik:** Operator (D4NNBOZ)
 **Klien:** Usaha bank keliling (owner/admin — satu peran pengguna aplikasi)
 **Repo:** `C:/Users/simpl/lender-platform/` → `admin/` (React+Vite) + `supabase/schema.sql`
@@ -110,6 +110,7 @@ Admin Web (Vite) ──→ Supabase Cloud ─ Postgres (+RLS/RPC) ─ Auth ─ S
 - **loan_documents**(BARU M9): dokumen pinjaman + RLS
 - **notifications**(tetap ✅ + tipe baru: tagihan & janji bayar)
 - **M21 (5 Nov 2026):** `collection_routes` & `calon_nasabah` **dibuang dari DB**; kolom `petugas_id` / `collected_by` / `paid_by` / `wilayah` **dihapus** (nilai historis disalin ke `dicatat_oleh`); enum `user_role` → `('admin','nasabah')`; fungsi `is_petugas()` dibuang; semua RLS write → `is_admin()`.
+- **M23 (5 Nov 2026) — model DanaModal:** tabel **`cash_transactions`** ditambah (buku mutasi kas masuk/keluar: tipe, kategori, loan_id/nasabah_id opsional, pihak, metode, nominal, catatan, `dicatat_oleh`); kolom **`profiles.status_keandalan`** (`LANCAR|PERINGATAN|MACET`) + fungsi `hitung_status_keandalan()` + trigger auto-refresh saat cicilan berubah; enum `loan_status` disederhanakan jadi `('disbursed','active','completed','rejected')` — **alur approval dihapus** (`submitted`/`under_review`/`approved` tidak ada lagi, fungsi `approve_loan`/`reject_loan` dibuang); `admin_create_loan` langsung insert `disbursed` + generate cicilan + catat kas keluar; `record_cash_payment` & `void_payment` ikut menulis ke `cash_transactions`; RPC baru `kas_harian(page,pageSize,dari,sampai)`.
 - RPC: `approve_loan` (generate jadwal **per frekuensi**, override nominal final), `reject_loan`, **`record_cash_payment`** (tunai, parsial, auto-apply kelebihan), **`void_payment`** / **`void_and_repay`** (koreksi beraudit), helper `is_admin()`, trigger + guard frekuensi/bunga/tenor.
 - **RPC skala besar (M20):** `laporan_ringkasan()`, `list_nasabah(page,pageSize,search,role,kyc)`, `setoran_harian(page,pageSize,dari,sampai)` — agregasi & paginasi di Postgres, bukan di browser. (M22: ikut menyesuaikan `petugas_id` → `dicatat_oleh`.)
 - **Index (M20):** loans(created_at desc), loans(status, created_at desc), installments(due_date,status), installments(status,due_date), payments(paid_at desc), payments(void_of), profiles(created_at desc), profiles(role), profiles(kyc_status), notifications(created_at desc), kyc_documents(created_at desc), loan_documents(created_at desc).
@@ -158,20 +159,27 @@ V3.0–v3.1 (live): nominal final admin (`approve_loan(p_amount_override)`), `ad
 | FR-B10 | Cek duplikat NIK sebelum `auth.admin.createUser` → 409 `nik_exists` + auto-recover akun yatim | ✅ |
 | FR-B11 | Agregasi & paginasi di Postgres (`laporan_ringkasan`, `list_nasabah`, `setoran_harian`) + index pendukung | ✅ |
 | FR-B12 | Hapus jejak petugas: enum, fungsi, tabel, kolom, policy, RPC (M21–M22) | ✅ |
+| FR-B13 | Arus Kas: tabel `cash_transactions` + RPC `kas_harian()`; pencairan/pembayaran/koreksi tercatat otomatis (M23) | ✅ |
+| FR-B14 | Pinjaman langsung cair tanpa tahap approval; `admin_create_loan` = disbursed + cicilan + kas keluar (M23) | ✅ |
+| FR-B15 | Status keandalan nasabah 3 level, dihitung otomatis dari riwayat cicilan (M23) | ✅ |
 
 ## 12. Alur Bisnis Utama (Bank Keliling)
 
 ```
-Admin daftar nasabah (KTP + foto + lokasi + kontak darurat)
+Admin daftar nasabah (KTP + foto + lokasi rumah/kantor + kontak darurat)
   → admin verifikasi KYC
   → admin buat pinjaman (plafon, frekuensi mingguan/bulanan, tenor periode)
-  → admin approve → jadwal auto-jadi per frekuensi
-  → admin catat bayar tunai per kunjungan → payment tercatat
+  → LANGSUNG CAIR: jadwal cicilan auto-jadi per frekuensi + kas keluar tercatat (M23)
+  → admin catat bayar tunai per kunjungan → payment + kas masuk tercatat
   → nunggak? status overdue otomatis tiap 00:00 WIB + notifikasi
   → semua lunas → completed
-  (reject kapan pun → notifikasi + alasan)
+  (salah input → void/reversal beraudit, kas ikut terkoreksi)
 
-Setoran: admin catat tunai → owner rekonsiliasi (tunai vs tercatat) per hari
+Arus Kas (M23): pencairan & pembayaran nasabah tercatat OTOMATIS oleh sistem;
+admin mencatat manual suntikan modal owner, biaya operasional, penarikan profit.
+
+Status keandalan nasabah (M23): LANCAR | PERINGATAN | MACET — dihitung otomatis
+dari riwayat cicilan, tampil sebagai badge di Dashboard & daftar nasabah.
 ```
 
 ## 13. Aturan Bisnis & Perhitungan (v3.0 — bunga 20%)
@@ -251,7 +259,9 @@ Setoran: admin catat tunai → owner rekonsiliasi (tunai vs tercatat) per hari
 - [x] **M21 Hapus 3 peran + hapus mobile app (5 Nov 2026)** — revisi klien (verbatim): "3 peran itu hilang karena yang menggunakan aplikasi nya cuma admin/owner aja." Klien konfirmasi: hapus semua jejak petugas/nasabah dari mobile/DB/admin web + **hapus mobile app sepenuhnya**. Migrasi `20261105120000_hapus_peran_petugas.sql`: enum `user_role` → `('admin','nasabah')` (nasabah = penanda pemilik data, bukan pengguna login); drop tabel `collection_routes` & `calon_nasabah`; drop fungsi `is_petugas()`; kolom `payments.petugas_id` / `loans.collected_by` / `installments.paid_by` → **`dicatat_oleh`** (nilai historis disalin dulu, 43 payments utuh); drop `profiles.petugas_id` & `profiles.wilayah`; RLS disederhanakan ke `is_admin()` untuk semua tulis; `record_cash_payment` / `void_payment` / `void_and_repay` body di-copy verbatim dari schema.sql (hanya cek peran + nama kolom yang berubah). Mobile app Flutter **dihapus total dari repo** (`git rm -r mobile`, 7.063 file / 3.9GB). Frontend admin: `api.ts` (Payment.petugas_id → dicatat_oleh, join `payments_dicatat_oleh_fkey`, SetoranHarianRow pencatatId/pencatatNama), Dashboard (buang kartu petugas), Setoran (petugasId → pencatatId, judul "Setoran Harian"), UserDetail (hapus baris Role, rename EmergencyContacts). schema.sql disinkronkan penuh (683 baris). Uji live: role DB = 1 admin + 10 nasabah; 5 kolom petugas HILANG; 3 kolom `dicatat_oleh` ADA; 2 tabel HILANG; 43 payments + 18 loans + 67 installments utuh; `record_cash_payment` → 204 + `dicatat_oleh` = Administrator; `void_payment` → 204; `convert-calon` → 400; `setoran_harian` & `list_nasabah` jalan; tanpa token ditolak.
 - [x] **M22 RPC M20 ikut menyesuaikan (5 Nov 2026)** — setelah M21, `list_nasabah()` & `setoran_harian()` error `column pg.petugas_id does not exist` / `column pm.petugas_id does not exist` (RPC M20 masih merujuk kolom yang sudah dibuang). Migrasi `20261105130000_rpc_dicatat_oleh.sql`: `list_nasabah` buang `pg.petugas_id` dari output; `setoran_harian` ganti `pm.petugas_id` → `pm.dicatat_oleh` dan output `petugasId/petugasNama` → `pencatatId/pencatatNama`. Uji live: setoran 2026-11-05 Administrator 15.000 (3x), list_nasabah total=11 ✅.
 
-**Status board (5 Nov 2026):** ✅ SEMUA M SELESAI (M0–M22). Admin web live, satu peran (admin/owner), fondasi skala besar (index, paginasi, agregasi server) sudah masuk. Mobile app dihapus. File `docs/PRD.md` duplikat lama (v1.0 pinjol) — acuan resmi `PRD.md` root.
+- [x] **M23 Model DanaModal + Arus Kas + redesign UI (5 Nov 2026)** — keputusan klien (5 poin): (1) **alur approval dihapus** — pinjaman langsung cair; (2) **cicilan bertahap dipertahankan** (parsial, 1–52 minggu / 1–3 bulanan, mockup hanya dipakai sebagai acuan tampilan); (3) **Arus Kas ditambah**; (4) min pinjaman tetap Rp50.000 (M17); (5) semua sekaligus. Migrasi `20261105140000_model_danamodal.sql`: tabel `cash_transactions` (kas masuk/keluar + RLS `is_admin()`), enum `status_keandalan` + kolom `profiles.status_keandalan` + `hitung_status_keandalan()` + 2 trigger auto-refresh, enum `loan_status` → `('disbursed','active','completed','rejected')` (status historis approval → disbursed), `approve_loan`/`reject_loan` dibuang, `admin_create_loan` ditulis ulang (langsung disbursed + generate cicilan + catat kas keluar), `record_cash_payment`/`void_payment` ikut menulis kas, RPC `kas_harian()`. **Urutan migrasi kritis:** policy `own loans ins` (yang mengunci `status='submitted'`) harus di-drop SEBELUM enum di-drop, kalau tidak Postgres menolak karena dependency. **Redesign UI sesuai mockup acuan** `danamodal_aplikasi_manajemen_peminjaman_dana_modal.html`: design system emerald + Plus Jakarta Sans + dark navbar (`@theme` di index.css), Layout sidebar → top navbar + tab, Login gaya mockup (badge "Akses Terbatas Khusus Admin & Owner"), Dashboard baru (4 metrik eksekutif + 2 tabel urgent: Mendekati Jatuh Tempo H-3 dengan aksi WA & Rute Maps, Telat Bayar dengan aksi Rumah/Kantor), halaman baru **Arus Kas** (ringkasan masuk/keluar/net, filter tanggal, pemilih tanggal, detail transaksi, modal catat kas manual), semua halaman di-restyle ke tema DanaModal (143 substitusi kelas). **Bug ketemu & fix:** email dummy `nNIK@danaku.test` masih bocor di Loans/LoanDetail/LoanNew (pelanggaran M14) → diganti NIK + telepon, `fetchLoans` select `nik` bukan `email`. Uji live: buat pinjaman 1jt/4 minggu → 200 + 4 cicilan 300rb + status disbursed + kas keluar 1jt; batas nominal 49.999→400 / 50.000→200 / 20jt→200 / 20jt+1→400; tenor monthly 2 → 400; bayar 250rb → 204 + kas masuk 250rb; void → 204 + kas keluar koreksi 250rb; `kas_harian` agregasi benar; `approve_loan` → 404 (fungsi dibuang); `list_nasabah`/`setoran_harian`/`laporan_ringkasan` tetap jalan; status keandalan terisi (1 MACET, 1 PERINGATAN, 9 LANCAR); build + TSC lolos; browser verify semua halaman.
+
+**Status board (5 Nov 2026):** ✅ SEMUA M SELESAI (M0–M23). Admin web live, satu peran (admin/owner), fondasi skala besar (index, paginasi, agregasi server) sudah masuk. Mobile app dihapus. File `docs/PRD.md` duplikat lama (v1.0 pinjol) — acuan resmi `PRD.md` root.
 
 ## 18. Acceptance Criteria MVP (Definition of Done) — HASIL UJI 1 Nov 2026
 

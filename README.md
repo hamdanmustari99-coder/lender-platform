@@ -2,14 +2,14 @@
 
 Platform pinjaman mikro dengan penagihan door-to-door: **admin web (React+TS+Vite)** + **Supabase** (Postgres + Auth + Storage + Realtime) sebagai backend.
 
-> **Dokumen acuan:** `PRD.md` (root) — v4.0, 5 Nov 2026.
+> **Dokumen acuan:** `PRD.md` (root) — v5.0, 5 Nov 2026.
 
 ```
 lender-platform/
-├── admin/      → React+TS+Vite: dashboard, approval, verifikasi KYC, users, setoran, laporan
+├── admin/      → React+TS+Vite: dashboard, pinjaman, nasabah, arus kas, setoran, laporan
 └── supabase/
     ├── schema.sql                 → skema DB + RLS + RPC (jalankan sekali di SQL Editor)
-    ├── migrations/                → migrasi bertahap (M14–M22); jalankan via `supabase db push`
+    ├── migrations/                → migrasi bertahap (M14–M23); jalankan via `supabase db push`
     └── functions/danaku-api/      → Edge Function: buat/hapus akun nasabah (service_role)
 ```
 
@@ -86,14 +86,17 @@ supabase functions deploy danaku-api --project-ref <project-ref>
 ## Alur bisnis
 
 ```
-Admin daftar nasabah (KTP + foto + lokasi + kontak darurat)
+Admin daftar nasabah (KTP + foto + lokasi rumah/kantor + kontak darurat)
       → admin verifikasi KYC
       → admin buat pinjaman (plafon, frekuensi, tenor, jaminan)
-      → admin approve + tetapkan nominal final → jadwal auto-generate per frekuensi
+      → LANGSUNG CAIR (M23): jadwal cicilan auto-generate + kas keluar tercatat
       → admin catat bayar tunai per kunjungan (parsial/penuh, auto-apply)
       → nunggak? status overdue otomatis tiap 00:00 WIB (pg_cron) + notifikasi
       → semua lunas → completed
 
+Arus Kas (M23): pencairan & pembayaran nasabah tercatat OTOMATIS;
+admin mencatat manual suntikan modal owner, biaya operasional, penarikan profit.
+Status keandalan nasabah (M23): LANCAR | PERINGATAN | MACET — otomatis dari riwayat cicilan.
 Setoran: admin catat tunai → owner rekonsiliasi per hari (agregasi WIB)
 Koreksi: salah input → void_payment / void_and_repay (reversal beraudit, alasan wajib)
 ```

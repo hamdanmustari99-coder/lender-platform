@@ -8,9 +8,11 @@ create type user_role   as enum ('admin', 'nasabah');  -- M21: petugas & borrowe
 create type kyc_status  as enum ('pending', 'verified', 'rejected');
 create type doc_type    as enum ('ktp', 'selfie');
 create type loan_frequency as enum ('weekly', 'monthly');  -- v2.0 bank keliling
-create type loan_status as enum ('submitted', 'under_review', 'approved', 'rejected', 'disbursed', 'active', 'completed');
+create type loan_status as enum ('disbursed', 'active', 'completed', 'rejected');  -- M23: alur approval dihapus
 
 -- 2. PROFILES (1-1 dengan auth.users) ----------------------------
+create type status_keandalan as enum ('LANCAR', 'PERINGATAN', 'MACET');  -- M23
+
 create table public.profiles (
   id          uuid primary key references auth.users(id) on delete cascade,
   role        user_role  not null default 'nasabah',   -- M21: admin|nasabah (petugas dihapus)
@@ -43,6 +45,7 @@ create table public.profiles (
   office_lat double precision,                     -- shareloc kantor (opsional)
   office_lng double precision,
   kyc_status  kyc_status not null default 'pending',
+  status_keandalan status_keandalan not null default 'LANCAR',  -- M23: LANCAR|PERINGATAN|MACET
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now()
 );
@@ -89,7 +92,7 @@ create table public.loans (
   late_fee        bigint not null default 0,           -- v2.0: denda (0 sampai ditentukan)
   dicatat_oleh    uuid references public.profiles(id) on delete set null,  -- M21: admin pencatat (dulu collected_by)
   purpose         text default '',
-  status          loan_status not null default 'submitted',
+  status          loan_status not null default 'disbursed',  -- M23: langsung cair
   reject_reason   text,
   decided_by      uuid references public.profiles(id),
   decided_at      timestamptz,
@@ -102,7 +105,7 @@ create or replace function public.loans_guard_insert()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if not public.is_admin() then
-    new.status        = 'submitted';
+    new.status        = 'disbursed';
     new.interest_rate = 20.00;
     new.late_fee      = 0;
     new.decided_by    = null;
@@ -196,88 +199,6 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
--- 9. RPC: hitung cicilan & generate jadwal saat approve (v2.0: per FREKUENSI)
-create or replace function public.approve_loan(p_loan_id uuid, p_amount_override bigint default null)
-returns void language plpgsql security definer set search_path = public as $$
-declare
-  lr record;
-  pay bigint;
-  due date;
-  step interval;
-  v_final bigint;
-begin
-  -- cek admin DULUAN
-  if not public.is_admin() then
-    raise exception 'Only admin can approve loans';
-  end if;
-  select * into lr from public.loans where id = p_loan_id for update;
-  if lr.id is null then
-    raise exception 'Loan tidak ditemukan';
-  end if;
-  if lr.status not in ('submitted','under_review') then
-    raise exception 'Loan is not in an approvable state';
-  end if;
-
-  -- v3.0: nominal final ditentukan admin (default = amount/requested).
-  -- v2.0: bunga flat per periode (15%): total = amount + 15%
-  v_final := coalesce(p_amount_override, lr.amount);
-  if v_final is null or v_final < 50000 or v_final > 20000000 then
-    raise exception 'Nominal final harus Rp50rb - Rp20jt';
-  end if;
-  if lr.frequency = 'monthly' and lr.tenor_months not in (1,3) then
-    raise exception 'Untuk bulanan pilih tenor 1 atau 3 bulan';
-  end if;
-  pay := ceil((v_final + v_final * lr.interest_rate / 100) / lr.tenor_months)::bigint;
-  step := case when lr.frequency = 'weekly'
-              then make_interval(weeks => 1)
-              else make_interval(months => 1) end;
-
-  update public.loans
-     set status = 'disbursed', amount = v_final, monthly_payment = pay,
-         decided_by = auth.uid(), decided_at = now()
-   where id = p_loan_id;
-
-  for i in 1..lr.tenor_months loop
-    due := (current_date + step * i);
-    insert into public.installments (loan_id, seq, due_date, amount)
-    values (p_loan_id, i, due, pay);
-  end loop;
-
-  insert into public.notifications (user_id, title, body, type)
-  values (lr.user_id, 'Pinjaman Disetujui',
-          'Pinjaman Anda sebesar Rp' || v_final || ' telah disetujui. Cicilan ' || case when lr.frequency = 'weekly' then 'mingguan' else 'bulanan' end || ' sebesar Rp' || pay || ' x ' || lr.tenor_months || ' periode. Cicilan pertama jatuh tempo pada ' || (current_date + step)::date,
-          'loan_status');
-end;
-$$;
-
-create or replace function public.reject_loan(p_loan_id uuid, p_reason text)
-returns void language plpgsql security definer set search_path = public as $$
-declare l record; v_reason text;
-begin
-  -- cek admin DULUAN (sebelum baca data; hemat + tidak bocor info status)
-  if not public.is_admin() then
-    raise exception 'Only admin can reject loans';
-  end if;
-  select * into l from public.loans where id = p_loan_id for update;
-  if l.id is null then
-    raise exception 'Loan tidak ditemukan';
-  end if;
-  if l.status not in ('submitted','under_review') then
-    raise exception 'Loan is not in a rejectable state';
-  end if;
-  -- alasan wajib (FR-B5): tolak string kosong/spasi
-  v_reason := btrim(coalesce(p_reason,''));
-  if v_reason = '' then
-    raise exception 'Alasan penolakan wajib diisi';
-  end if;
-  update public.loans
-     set status = 'rejected', reject_reason = v_reason, decided_by = auth.uid(), decided_at = now()
-   where id = p_loan_id;
-  insert into public.notifications (user_id, title, body, type)
-  values (l.user_id, 'Pinjaman Ditolak', 'Maaf, pengajuan pinjaman Anda ditolak. Alasan: ' || v_reason, 'loan_status');
-end;
-$$;
-
 -- 10. RPC: pembayaran TUNAI oleh admin (v2.0, FR-B6b; M21: admin-only) -------
 -- v2.0-autoapply: kelebihan mengalir ke cicilan berikutnya (prioritas due terdekat).
 -- Tiap aliran = 1 baris payments (audit 1:1). Total > sisa hutang = DITOLAK.
@@ -342,6 +263,12 @@ begin
     values (tgt.loan_id, cur.id, lr.user_id, auth.uid(), v_to_apply,
             'Kelebihan dari cicilan #' || tgt.seq || coalesce(' ' || nullif(p_note,''), ''));
   end loop;
+  -- M23: Arus Kas — uang masuk dari pembayaran nasabah
+  insert into public.cash_transactions (tipe, kategori, loan_id, nasabah_id, pihak, metode, nominal, catatan, dicatat_oleh)
+  values ('MASUK', 'Pembayaran Angsuran/Pelunasan', tgt.loan_id, lr.user_id,
+          (select full_name from public.profiles where id = lr.user_id),
+          'Tunai', p_amount, coalesce(p_note,''), auth.uid());
+
   if lr.status = 'disbursed' then
     update public.loans set status = 'active' where id = lr.id;
   end if;
@@ -389,6 +316,11 @@ begin
   values (pm.loan_id, pm.installment_id, pm.nasabah_id, auth.uid(),
           -pm.amount, 'KOREKSI: ' || v_reason, pm.id, v_reason);
   update public.payments set voided_at = now(), void_reason = v_reason where id = pm.id;
+  -- M23: Arus Kas — uang keluar karena koreksi pembayaran
+  insert into public.cash_transactions (tipe, kategori, loan_id, nasabah_id, pihak, metode, nominal, catatan, dicatat_oleh)
+  values ('KELUAR', 'Koreksi Pembayaran', pm.loan_id, pm.nasabah_id,
+          (select full_name from public.profiles where id = pm.nasabah_id),
+          'Tunai', pm.amount, 'KOREKSI: ' || v_reason, auth.uid());
   -- kembalikan amount_paid cicilan
   if pm.installment_id is not null then
     update public.installments
@@ -451,10 +383,12 @@ end;
 $$;
 
 -- 9b. RPC v3.0: admin buatkan pinjaman langsung (nominal dari WA = final).
--- Insert sebagai admin (guard skip) lalu approve atomic. 1 call = cair.
+-- M23: alur approval DIHAPUS — pinjaman langsung disbursed + cicilan + kas keluar.
 create or replace function public.admin_create_loan(p_user_id uuid, p_amount bigint, p_tenor int, p_frequency loan_frequency, p_purpose text default '', p_collateral_type text default '', p_collateral_detail text default '')
 returns uuid language plpgsql security definer set search_path = public as $$
-declare v_id uuid;
+declare
+  v_id uuid;
+  v_payment bigint;
 begin
   if not public.is_admin() then
     raise exception 'Only admin can create loans';
@@ -468,10 +402,38 @@ begin
   if p_frequency = 'weekly' and (p_tenor < 1 or p_tenor > 52) then
     raise exception 'Untuk mingguan tenor 1-52 minggu';
   end if;
-  insert into public.loans (user_id, amount, requested_amount, tenor_months, frequency, monthly_payment, purpose, collateral_type, collateral_detail, status)
-  values (p_user_id, p_amount, p_amount, p_tenor, p_frequency, p_amount, coalesce(p_purpose,''), coalesce(p_collateral_type,''), coalesce(p_collateral_detail,''), 'submitted')
+
+  v_payment := ceil((p_amount + p_amount * 20.00 / 100) / p_tenor)::bigint;
+
+  insert into public.loans (
+    user_id, amount, requested_amount, tenor_months, frequency,
+    monthly_payment, purpose, collateral_type, collateral_detail,
+    interest_rate, late_fee, status, dicatat_oleh
+  )
+  values (
+    p_user_id, p_amount, p_amount, p_tenor, p_frequency,
+    v_payment, coalesce(p_purpose,''), coalesce(p_collateral_type,''),
+    coalesce(p_collateral_detail,''),
+    20.00, 0, 'disbursed', auth.uid()
+  )
   returning id into v_id;
-  perform public.approve_loan(v_id, p_amount);
+
+  if p_frequency = 'weekly' then
+    insert into public.installments (loan_id, seq, due_date, amount)
+    select v_id, g, ((now() at time zone 'Asia/Jakarta')::date + (g * 7)), v_payment
+      from generate_series(1, p_tenor) g;
+  else
+    insert into public.installments (loan_id, seq, due_date, amount)
+    select v_id, g, ((now() at time zone 'Asia/Jakarta')::date + (g || ' month')::interval), v_payment
+      from generate_series(1, p_tenor) g;
+  end if;
+
+  -- Arus Kas: pencairan = uang keluar
+  insert into public.cash_transactions (tipe, kategori, loan_id, nasabah_id, pihak, metode, nominal, catatan, dicatat_oleh)
+  values ('KELUAR', 'Pencairan Pinjaman', v_id, p_user_id,
+          (select full_name from public.profiles where id = p_user_id),
+          'Tunai', p_amount, 'Pencairan pinjaman ' || v_id::text, auth.uid());
+
   return v_id;
 end;
 $$;
@@ -594,7 +556,6 @@ create policy "own ec del"    on public.emergency_contacts for delete using (aut
 
 -- loans: nasabah insert & baca miliknya; admin semua + update status;
 create policy "own loans read"  on public.loans for select using (auth.uid() = user_id or public.is_admin());
-create policy "own loans ins"   on public.loans for insert with check (auth.uid() = user_id and status = 'submitted');
 create policy "admin loans upd" on public.loans for update using (public.is_admin());
 
 -- installments: read-only utk nasabah miliknya; admin kelola;
@@ -630,6 +591,135 @@ create index idx_notif_user      on public.notifications(user_id, is_read);
 create index idx_kyc_user        on public.kyc_documents(user_id);
 create index if not exists idx_inst_due on public.installments(due_date, status)
   where status in ('unpaid', 'overdue');   -- v13: pemindaian overdue harian
+
+-- ============================================================
+-- M23. ARUS KAS — buku mutasi kas masuk & keluar
+--      (pencairan, pembayaran nasabah, modal owner, operasional)
+-- ============================================================
+create table if not exists public.cash_transactions (
+  id           uuid primary key default gen_random_uuid(),
+  tipe         text not null check (tipe in ('MASUK', 'KELUAR')),
+  kategori     text not null default '',
+  loan_id      uuid references public.loans(id) on delete set null,
+  nasabah_id   uuid references public.profiles(id) on delete set null,
+  pihak        text not null default '',
+  metode       text not null default 'Tunai',
+  nominal      bigint not null check (nominal > 0),
+  catatan      text not null default '',
+  dicatat_oleh uuid references public.profiles(id) on delete set null,
+  created_at   timestamptz not null default now()
+);
+create index if not exists idx_cash_created on public.cash_transactions(created_at desc);
+create index if not exists idx_cash_tipe    on public.cash_transactions(tipe, created_at desc);
+create index if not exists idx_cash_loan    on public.cash_transactions(loan_id) where loan_id is not null;
+
+alter table public.cash_transactions enable row level security;
+drop policy if exists "cash admin all" on public.cash_transactions;
+create policy "cash admin all" on public.cash_transactions for all
+  using (public.is_admin()) with check (public.is_admin());
+
+-- M23b. Status keandalan nasabah: LANCAR | PERINGATAN | MACET
+create or replace function public.hitung_status_keandalan(p_user_id uuid)
+returns status_keandalan language plpgsql stable security definer set search_path = public as $$
+declare
+  v_macet      boolean;
+  v_peringatan boolean;
+begin
+  select exists (
+    select 1 from public.installments i
+    join public.loans l on l.id = i.loan_id
+    where l.user_id = p_user_id
+      and i.status <> 'paid'
+      and i.due_date < (now() at time zone 'Asia/Jakarta')::date
+  ) into v_macet;
+  if v_macet then return 'MACET'; end if;
+
+  select exists (
+    select 1 from public.installments i
+    join public.loans l on l.id = i.loan_id
+    where l.user_id = p_user_id
+      and i.status = 'paid'
+      and i.paid_at::date > i.due_date
+  ) into v_peringatan;
+  if v_peringatan then return 'PERINGATAN'; end if;
+
+  return 'LANCAR';
+end;
+$$;
+
+create or replace function public.refresh_status_keandalan()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare v_user uuid;
+begin
+  if tg_table_name = 'installments' then
+    select l.user_id into v_user from public.loans l where l.id = new.loan_id;
+  else
+    v_user := new.user_id;
+  end if;
+  if v_user is not null then
+    update public.profiles
+       set status_keandalan = public.hitung_status_keandalan(v_user)
+     where id = v_user;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_refresh_keandalan_inst on public.installments;
+create trigger trg_refresh_keandalan_inst
+  after insert or update of status, paid_at on public.installments
+  for each row execute function public.refresh_status_keandalan();
+
+drop trigger if exists trg_refresh_keandalan_loan on public.loans;
+create trigger trg_refresh_keandalan_loan
+  after insert on public.loans
+  for each row execute function public.refresh_status_keandalan();
+
+-- M23c. RPC ringkasan Arus Kas per hari (WIB)
+create or replace function public.kas_harian(
+  p_page int default 1,
+  p_page_size int default 50,
+  p_dari date default null,
+  p_sampai date default null
+)
+returns json
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_size int := least(greatest(coalesce(p_page_size, 50), 1), 200);
+  v_offset int := (greatest(coalesce(p_page, 1), 1) - 1) * least(greatest(coalesce(p_page_size, 50), 1), 200);
+begin
+  if not public.is_admin() then
+    raise exception 'Only admin can list kas';
+  end if;
+
+  return (
+    with agg as (
+      select
+        (c.created_at at time zone 'Asia/Jakarta')::date as tanggal,
+        coalesce(sum(case when c.tipe = 'MASUK'  then c.nominal else 0 end), 0)::bigint as masuk,
+        coalesce(sum(case when c.tipe = 'KELUAR' then c.nominal else 0 end), 0)::bigint as keluar,
+        count(*)::int as jumlah
+      from public.cash_transactions c
+      where (p_dari is null or (c.created_at at time zone 'Asia/Jakarta')::date >= p_dari)
+        and (p_sampai is null or (c.created_at at time zone 'Asia/Jakarta')::date <= p_sampai)
+      group by 1
+    )
+    select json_build_object(
+      'total', (select count(*) from agg),
+      'page', greatest(coalesce(p_page, 1), 1),
+      'pageSize', v_size,
+      'rows', (select coalesce(json_agg(r order by r.tanggal desc), '[]'::json)
+                 from (select tanggal, masuk, keluar, (masuk - keluar) as net, jumlah
+                         from agg
+                        order by tanggal desc
+                        limit v_size offset v_offset) r)
+    )
+  );
+end;
+$$;
 
 -- ============================================================
 -- 12b. v13 — OVERDUE OTOMATIS + CONVERT CALON 1-KLIK

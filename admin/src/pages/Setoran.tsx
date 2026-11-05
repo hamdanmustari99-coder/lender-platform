@@ -121,7 +121,7 @@ export default function Setoran() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-bold text-slate-800">Setoran Harian</h1>
+      <h1 className="text-2xl font-black tracking-tight text-slate-900">Setoran Harian</h1>
       <p className="-mt-2 text-sm text-slate-500">
         Tunai tercatat per admin per hari.
         Cocokkan dengan uang fisik — kalau beda, tanyakan selisihnya. 🤝
@@ -145,7 +145,7 @@ export default function Setoran() {
             setPage(1)
             setOpenDay(null)
           }}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
         />
         {filter && (
           <button
@@ -160,16 +160,16 @@ export default function Setoran() {
           </button>
         )}
         <div className="ml-auto text-sm text-slate-600">
-          Total tampil: <span className="font-bold text-emerald-700">{fmtRp(grandTotal)}</span>
+          Total tampil: <span className="font-bold text-primary-700">{fmtRp(grandTotal)}</span>
         </div>
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-xl bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm text-slate-400 shadow-sm">
           Belum ada setoran tercatat
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl bg-white shadow-sm">
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-200 text-left text-xs text-slate-500">
@@ -190,11 +190,11 @@ export default function Setoran() {
                       <td className="px-4 py-3 text-slate-700">{fmtDate(r.tanggal)}</td>
                       <td className="px-4 py-3 font-medium text-slate-800">{r.pencatatNama}</td>
                       <td className="px-4 py-3 text-slate-600">{r.jumlah}x</td>
-                      <td className="px-4 py-3 font-bold text-emerald-700">{fmtRp(r.total)}</td>
+                      <td className="px-4 py-3 font-bold text-primary-700">{fmtRp(r.total)}</td>
                       <td className="px-4 py-3 text-right">
                         <button
                           onClick={() => void toggleDay(r)}
-                          className="text-xs font-medium text-emerald-600 hover:underline"
+                          className="text-xs font-medium text-primary-600 hover:underline"
                         >
                           {open ? 'Tutup ▲' : 'Rincian ▼'}
                         </button>
@@ -323,7 +323,7 @@ export default function Setoran() {
               value={voidReason}
               onChange={(e) => setVoidReason(e.target.value)}
               placeholder="cth: salah input, harusnya 50rb"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             />
             <label className="mt-3 block text-sm font-medium text-slate-700">
               Nominal yang benar (opsional)
@@ -333,7 +333,7 @@ export default function Setoran() {
               value={voidCorrect}
               onChange={(e) => setVoidCorrect(e.target.value)}
               placeholder="cth: 50000 — kosongkan jika hanya batalkan"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             />
             <p className="mt-1 text-xs text-slate-500">
               Diisi = koreksi + langsung catat bayar yang benar (sekali klik).

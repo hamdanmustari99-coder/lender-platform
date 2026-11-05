@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
-  approveLoan,
   fetchInstallments,
   fetchLoan,
   fetchLoanDocuments,
   kycDocSignedUrl,
   recordCashPayment,
-  rejectLoan,
   subscribeToTables,
 } from '../lib/api'
 import type { Installment, Loan, LoanDocument } from '../lib/api'
@@ -16,7 +14,7 @@ import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '..
 
 const INST_CLASS: Record<string, string> = {
   unpaid: 'bg-slate-100 text-slate-700',
-  paid: 'bg-emerald-100 text-emerald-800',
+  paid: 'bg-primary-100 text-primary-800',
   overdue: 'bg-red-100 text-red-700',
 }
 const INST_LABEL: Record<string, string> = {
@@ -41,9 +39,6 @@ export default function LoanDetail() {
   const [error, setError] = useState<string | null>(null)
   const [actionErr, setActionErr] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [showReject, setShowReject] = useState(false)
-  const [reason, setReason] = useState('')
-  const [finalAmount, setFinalAmount] = useState('')
   const [docs, setDocs] = useState<LoanDocument[]>([])
   const [docUrls, setDocUrls] = useState<Record<string, string>>({})
   // v3.1: catat bayar tunai per cicilan (admin, tanpa petugas)
@@ -86,18 +81,9 @@ export default function LoanDetail() {
   }, [id])
 
   useEffect(() => {
-    setFinalAmount('')
     void load()
     return subscribeToTables(['loans', 'installments'], () => void load())
   }, [load])
-
-  // Prefill nominal final saat loan dimuat / berganti
-  useEffect(() => {
-    if (loan && finalAmount === '') {
-      setFinalAmount(String(loan.requested_amount ?? loan.amount))
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loan?.id])
 
   // Dokumen jaminan per pinjaman (thumbnail via signed URL)
   useEffect(() => {
@@ -129,19 +115,6 @@ export default function LoanDetail() {
     }
   }, [id])
 
-  const act = async (fn: () => Promise<void>) => {
-    setActionErr(null)
-    setBusy(true)
-    try {
-      await fn()
-      await load()
-    } catch (e) {
-      setActionErr(errMsg(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
   if (error) {
     return (
       <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
@@ -149,7 +122,6 @@ export default function LoanDetail() {
   }
   if (!loan) return <div className="text-sm text-slate-500">Memuat…</div>
 
-  const decidable = loan.status === 'submitted' || loan.status === 'under_review'
   const paidCount = installments.filter((i) => i.status === 'paid').length
   // Ringkasan bayar: total tagihan = pokok + bunga + denda; bayar = sum amount_paid
   const totalTagihan =
@@ -167,12 +139,12 @@ export default function LoanDetail() {
 
   return (
     <div className="space-y-4">
-      <Link to="/loans" className="text-sm text-emerald-600 hover:underline">
+      <Link to="/loans" className="text-sm text-primary-600 hover:underline">
         ← Kembali ke daftar pinjaman
       </Link>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-slate-800">
+        <h1 className="text-2xl font-black tracking-tight text-slate-900">
           Pinjaman {fmtRp(loan.amount)}
         </h1>
         <span className={`rounded-full px-3 py-1 text-xs font-medium ${LOAN_STATUS_CLASS[loan.status]}`}>
@@ -188,7 +160,7 @@ export default function LoanDetail() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         {/* Detail pinjaman */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 text-sm font-semibold text-slate-700">Detail Pinjaman</div>
           <dl className="space-y-2 text-sm">
             <Row label="Jumlah pokok" value={fmtRp(loan.amount)} />
@@ -210,86 +182,10 @@ export default function LoanDetail() {
               <Row label="Alasan penolakan" value={loan.reject_reason} />
             )}
           </dl>
-          {decidable && (
-            <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
-              <div>
-                <label
-                  htmlFor="final-amount"
-                  className="mb-1 block text-xs font-medium text-slate-600"
-                >
-                  Nominal final (Rp)
-                </label>
-                <input
-                  id="final-amount"
-                  type="number"
-                  min={50000}
-                  max={20000000}
-                  step={50000}
-                  value={finalAmount}
-                  onChange={(e) => setFinalAmount(e.target.value)}
-                  placeholder={String(loan.requested_amount ?? loan.amount)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-                />
-                <p className="mt-1 text-xs text-slate-400">
-                  Prefill usulan nasabah; boleh diubah sebelum dicairkan.
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  disabled={busy}
-                  onClick={() =>
-                    void act(async () => {
-                      const v = Number(finalAmount)
-                      if (!Number.isFinite(v) || v < 50000 || v > 20000000) {
-                        throw new Error(
-                          'Nominal final harus antara Rp50.000–Rp20.000.000',
-                        )
-                      }
-                      await approveLoan(loan.id, Math.round(v))
-                    })
-                  }
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
-                >
-                  ✅ Setujui &amp; Cairkan
-                </button>
-                <button
-                  disabled={busy}
-                  onClick={() => setShowReject((v) => !v)}
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  ✖ Tolak
-                </button>
-              </div>
-            </div>
-          )}
-          {showReject && decidable && (
-            <div className="mt-3 space-y-2">
-              <textarea
-                placeholder="Alasan penolakan (dikirim sebagai notifikasi ke nasabah)…"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                rows={2}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-              />
-              <button
-                disabled={busy}
-                onClick={() =>
-                  void act(async () => {
-                    await rejectLoan(loan.id, reason.trim() || 'Tidak memenuhi kriteria')
-                    setShowReject(false)
-                    setReason('')
-                  })
-                }
-                className="rounded-lg bg-red-700 px-4 py-2 text-sm font-medium text-white hover:bg-red-800 disabled:opacity-50"
-              >
-                Kirim Penolakan
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Data nasabah */}
-        <div className="rounded-xl bg-white p-5 shadow-sm">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-3 text-sm font-semibold text-slate-700">Data Nasabah (KTP)</div>
           <dl className="space-y-2 text-sm">
             <Row label="Nama" value={loan.profiles?.full_name || '(tanpa nama)'} />
@@ -318,7 +214,6 @@ export default function LoanDetail() {
             <Row label="Status Kawin" value={loan.profiles?.status_kawin || '—'} />
             <Row label="Pekerjaan" value={loan.profiles?.pekerjaan || '—'} />
             <Row label="Kewarganegaraan" value={loan.profiles?.kewarganegaraan || '—'} />
-            <Row label="Email" value={loan.profiles?.email || '—'} />
             <Row label="No. HP Utama" value={loan.profiles?.phone || '—'} />
             <Row
               label="Status KYC"
@@ -330,7 +225,7 @@ export default function LoanDetail() {
       </div>
 
       {/* Dokumen Jaminan */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 text-sm font-semibold text-slate-700">
           Dokumen Jaminan ({docs.length})
         </div>
@@ -361,7 +256,7 @@ export default function LoanDetail() {
       </div>
 
       {/* Jadwal cicilan */}
-      <div className="rounded-xl bg-white p-5 shadow-sm">
+      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-3 flex items-center justify-between">
           <div className="text-sm font-semibold text-slate-700">
             Jadwal Cicilan ({paidCount}/{installments.length} lunas)
@@ -409,7 +304,7 @@ export default function LoanDetail() {
                         setPayAmount(String(i.amount - (Number(i.amount_paid) || 0)))
                         setPayNote('')
                       }}
-                      className="text-xs font-medium text-emerald-600 hover:underline disabled:opacity-50"
+                      className="text-xs font-medium text-primary-600 hover:underline disabled:opacity-50"
                     >
                       💵 Catat Bayar
                     </button>
@@ -444,7 +339,7 @@ export default function LoanDetail() {
               sudah masuk {fmtRp(Number(payTarget.amount_paid) || 0)} • sisa{' '}
               {fmtRp(payTarget.amount - (Number(payTarget.amount_paid) || 0))}
             </p>
-            <div className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            <div className="mt-3 rounded-lg bg-primary-50 px-3 py-2 text-xs text-primary-800">
               Kelebihan otomatis diteruskan ke cicilan berikutnya. Total melebihi
               sisa hutang akan ditolak.
             </div>
@@ -457,7 +352,7 @@ export default function LoanDetail() {
               value={payAmount}
               onChange={(e) => setPayAmount(e.target.value)}
               placeholder="cth: 120000"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             />
             <label className="mt-3 block text-sm font-medium text-slate-700">
               Catatan (opsional)
@@ -466,7 +361,7 @@ export default function LoanDetail() {
               value={payNote}
               onChange={(e) => setPayNote(e.target.value)}
               placeholder="cth: bayar di rumah, via transfer"
-              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
+              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
             />
             <div className="mt-4 flex justify-end gap-2">
               <button
@@ -478,7 +373,7 @@ export default function LoanDetail() {
               <button
                 disabled={busy || !payAmount.trim()}
                 onClick={() => void doPay()}
-                className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
               >
                 {busy ? 'Menyimpan…' : 'Simpan Pembayaran'}
               </button>
@@ -502,7 +397,7 @@ function Row({
   return (
     <div className="flex justify-between gap-4">
       <dt className="text-slate-500">{label}</dt>
-      <dd className={strong ? 'font-bold text-emerald-700' : 'text-right text-slate-800'}>
+      <dd className={strong ? 'font-bold text-primary-700' : 'text-right text-slate-800'}>
         {value}
       </dd>
     </div>

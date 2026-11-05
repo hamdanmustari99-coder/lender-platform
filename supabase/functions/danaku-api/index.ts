@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
         .from('loans')
         .select('id, status')
         .eq('user_id', userId)
-        .in('status', ['active', 'disbursed', 'under_review', 'submitted'])
+        .in('status', ['active', 'disbursed'])
         .limit(1)
       if (lErr) return json({ error: lErr.message }, 400)
       if (activeLoans && activeLoans.length > 0) {

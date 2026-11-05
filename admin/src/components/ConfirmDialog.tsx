@@ -65,8 +65,8 @@ const TONE: Record<'danger' | 'primary', { icon: string; btn: string; ring: stri
   },
   primary: {
     icon: '❓',
-    btn: 'bg-emerald-600 hover:bg-emerald-700',
-    ring: 'focus:ring-emerald-500',
+    btn: 'bg-primary-600 hover:bg-primary-700',
+    ring: 'focus:ring-primary-500',
   },
 }
 
