@@ -57,6 +57,23 @@ export const KYC_STATUS_LABEL: Record<string, string> = {
   rejected: 'Ditolak',
 }
 
+/**
+ * Nomor telepon -> href tel: siap pakai.
+ * 0812... / 62812... / +62 812 ... dinormalisasi jadi +62812...
+ * (format E.164; iOS/Android menerima keduanya, +62 lebih aman untuk dialer desktop)
+ */
+export const telHref = (phone: string | null | undefined): string | null => {
+  const digits = (phone ?? '').replace(/[^\d+]/g, '')
+  if (!digits) return null
+  const intl = digits.startsWith('+')
+    ? digits.slice(1)
+    : digits.startsWith('62')
+      ? digits
+      : digits.replace(/^0+/, '62')
+  // minimal 8 digit supaya nomor separuh/ngawur tidak jadi link
+  return intl.length >= 8 ? `tel:+${intl}` : null
+}
+
 /** Ubah error apa pun (Error, PostgrestError object, string) jadi pesan terbaca */
 export const errMsg = (e: unknown): string => {
   if (typeof e === 'string') return e

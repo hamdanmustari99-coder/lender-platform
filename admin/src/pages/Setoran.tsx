@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { Fragment, useCallback, useEffect, useState } from 'react'
 import {
   fetchPaymentsForDay,
   fetchSetoranHarian,
@@ -20,6 +20,66 @@ const PAGE_SIZE = 50
  * transaksi hanya di-fetch saat baris di-expand, jadi halaman tetap ringan
  * walau payment sudah puluhan ribu.
  */
+/**
+ * Rincian pembayaran satu hari — dipakai kartu mobile DAN baris
+ * detail desktop (sebelumnya hanya mobile yang punya, jadi tombol
+ * "Rincian" di tabel desktop tidak menampilkan apa pun).
+ */
+function DayDetail({
+  detail,
+  detailLoading,
+  voiding,
+  onKoreksi,
+}: {
+  detail: Payment[]
+  detailLoading: boolean
+  voiding: string | null
+  onKoreksi: (p: Payment) => void
+}) {
+  if (detailLoading) {
+    return <div className="text-xs text-slate-500">Memuat rincian…</div>
+  }
+  if (detail.length === 0) {
+    return <div className="text-xs text-slate-500">Tidak ada transaksi</div>
+  }
+  return (
+    <div className="space-y-2">
+      {detail.map((p) => (
+        <div
+          key={p.id}
+          className="flex items-start justify-between gap-2 text-xs"
+        >
+          <span className={p.amount < 0 ? 'text-red-600' : 'text-slate-600'}>
+            {new Date(p.paid_at).toLocaleTimeString('id-ID', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}{' '}
+            • {p.nasabah?.full_name || '—'}
+            {p.note ? ` • “${p.note}”` : ''}
+          </span>
+          <span className="flex shrink-0 items-center gap-2">
+            <span
+              className={`font-medium ${p.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}
+            >
+              {fmtRp(p.amount)}
+            </span>
+            {p.amount > 0 && (
+              <button
+                disabled={voiding === p.id}
+                onClick={() => onKoreksi(p)}
+                className="font-medium text-amber-600 hover:underline disabled:opacity-50"
+                title="Koreksi (reversal beraudit)"
+              >
+                Koreksi
+              </button>
+            )}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function Setoran() {
   const { showToast } = useToast()
   const [rows, setRows] = useState<SetoranHarianRow[]>([])
@@ -79,6 +139,13 @@ export default function Setoran() {
     }
   }
 
+  const onKoreksi = (p: Payment) => {
+    setActionErr(null)
+    setVoidReason('')
+    setVoidCorrect('')
+    setVoidTarget(p)
+  }
+
   const grandTotal = rows.reduce((s, r) => s + r.total, 0)
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
@@ -135,10 +202,10 @@ export default function Setoran() {
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Keuangan · rekonsiliasi</p>
-        <h1 className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">Setoran Harian</h1>
+        <p className="text-xs font-bold uppercase tracking-wide text-primary-700">Keuangan · revisi &amp; rekonsiliasi</p>
+        <h1 className="mt-1 text-xl font-black tracking-tight text-slate-900 sm:text-2xl">Revisi Pembayaran</h1>
         <p className="mt-1 text-sm text-slate-500">
-          Jawab pertanyaan: siapa yang sudah bayar dan berapa yang harus dicocokkan dengan uang fisik?
+          Jawab pertanyaan: siapa yang sudah bayar dan berapa yang harus dicocokkan dengan uang fisik? Buka rincian tiap baris untuk mengoreksi kesalahan catatan.
         </p>
       </div>
 
@@ -223,55 +290,12 @@ export default function Setoran() {
 
                   {open && (
                     <div className="border-t border-slate-100 bg-slate-50 px-4 py-3">
-                      {detailLoading ? (
-                        <div className="text-xs text-slate-400">Memuat rincian…</div>
-                      ) : detail.length === 0 ? (
-                        <div className="text-xs text-slate-400">Tidak ada transaksi</div>
-                      ) : (
-                        <div className="space-y-2">
-                          {detail.map((p) => (
-                            <div
-                              key={p.id}
-                              className="flex items-start justify-between gap-2 text-xs"
-                            >
-                              <span
-                                className={
-                                  p.amount < 0 ? 'text-red-600' : 'text-slate-600'
-                                }
-                              >
-                                {new Date(p.paid_at).toLocaleTimeString('id-ID', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}{' '}
-                                • {p.nasabah?.full_name || '—'}
-                                {p.note ? ` • “${p.note}”` : ''}
-                              </span>
-                              <span className="flex shrink-0 items-center gap-2">
-                                <span
-                                  className={`font-medium ${p.amount < 0 ? 'text-red-600' : 'text-slate-800'}`}
-                                >
-                                  {fmtRp(p.amount)}
-                                </span>
-                                {p.amount > 0 && (
-                                  <button
-                                    disabled={voiding === p.id}
-                                    onClick={() => {
-                                      setActionErr(null)
-                                      setVoidReason('')
-                                      setVoidCorrect('')
-                                      setVoidTarget(p)
-                                    }}
-                                    className="font-medium text-amber-600 hover:underline disabled:opacity-50"
-                                    title="Koreksi (reversal beraudit)"
-                                  >
-                                    Koreksi
-                                  </button>
-                                )}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <DayDetail
+                        detail={detail}
+                        detailLoading={detailLoading}
+                        voiding={voiding}
+                        onKoreksi={onKoreksi}
+                      />
                     </div>
                   )}
                 </div>
@@ -296,24 +320,38 @@ export default function Setoran() {
                   const key = `${r.tanggal}|${r.pencatatId}`
                   const open = openDay === key
                   return (
-                    <tr key={key} className="border-b border-slate-100">
-                      <td className="px-4 py-3 text-slate-700">{fmtDate(r.tanggal)}</td>
-                      <td className="px-4 py-3 font-medium text-slate-800">
-                        {r.pencatatNama}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">{r.jumlah}x</td>
-                      <td className="px-4 py-3 font-bold text-primary-700">
-                        {fmtRp(r.total)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <button
-                          onClick={() => void toggleDay(r)}
-                          className="text-xs font-medium text-primary-600 hover:underline"
-                        >
-                          {open ? 'Tutup ▲' : 'Rincian ▼'}
-                        </button>
-                      </td>
-                    </tr>
+                    <Fragment key={key}>
+                      <tr className="border-b border-slate-100">
+                        <td className="px-4 py-3 text-slate-700">{fmtDate(r.tanggal)}</td>
+                        <td className="px-4 py-3 font-medium text-slate-800">
+                          {r.pencatatNama}
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{r.jumlah}x</td>
+                        <td className="px-4 py-3 font-bold text-primary-700">
+                          {fmtRp(r.total)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => void toggleDay(r)}
+                            className="text-xs font-medium text-primary-600 hover:underline"
+                          >
+                            {open ? 'Tutup ▲' : 'Rincian ▼'}
+                          </button>
+                        </td>
+                      </tr>
+                      {open && (
+                        <tr className="border-b border-slate-100 bg-slate-50">
+                          <td colSpan={5} className="px-4 py-3">
+                            <DayDetail
+                              detail={detail}
+                              detailLoading={detailLoading}
+                              voiding={voiding}
+                              onKoreksi={onKoreksi}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   )
                 })}
               </tbody>

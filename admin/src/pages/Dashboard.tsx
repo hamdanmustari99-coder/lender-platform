@@ -1,19 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Legend,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts'
-import {
   aggregateSetoran,
   fetchInstallmentsForLoans,
   fetchLoans,
@@ -22,15 +9,15 @@ import {
   listNasabah,
   subscribeToTables,
 } from '../lib/api'
-import type { Installment, Loan, LoanStatus, Profile } from '../lib/api'
+import type { Installment, Loan, Profile } from '../lib/api'
 import {
   STATUS_KEANDALAN_CLASS,
   fmtDate,
   fmtRp,
   LOAN_STATUS_CLASS,
-  LOAN_STATUS_COLOR,
   LOAN_STATUS_LABEL,
   errMsg,
+  telHref,
 } from '../lib/format'
 
 /** Tanggal lokal (WIB) dalam format YYYY-MM-DD — hindari geser UTC. */
@@ -56,6 +43,41 @@ const waLink = (phone: string | null, nama: string, total: number, tempo: string
 
 const mapsLink = (lat: number | null, lng: number | null): string | null =>
   lat != null && lng != null ? `https://www.google.com/maps?q=${lat},${lng}` : null
+
+/** Tombol aksi kontak: Telepon (tel:) + WA. Dipakai di list jatuh tempo & telat bayar. */
+const KontakAksi = ({
+  phone,
+  nama,
+  sisa,
+  tempo,
+}: {
+  phone: string | null
+  nama: string
+  sisa: number
+  tempo: string
+}) => {
+  const tel = telHref(phone)
+  if (!tel) return null
+  return (
+    <div className="flex gap-1">
+      <a
+        href={tel}
+        title={`Telepon ${nama}`}
+        className="rounded bg-sky-100 px-2 py-1 text-[10px] font-bold text-sky-800 transition hover:bg-sky-200"
+      >
+        📞 Telpon
+      </a>
+      <a
+        href={waLink(phone!, nama, sisa, tempo)}
+        target="_blank"
+        rel="noreferrer"
+        className="rounded bg-primary-100 px-2 py-1 text-[10px] font-bold text-primary-800 transition hover:bg-primary-200"
+      >
+        💬 WA
+      </a>
+    </div>
+  )
+}
 
 interface DueItem {
   loan: Loan
@@ -179,40 +201,6 @@ export default function Dashboard() {
     }
   }, [loans, profiles, totalNasabah])
 
-  const monthly = useMemo(() => {
-    const now = new Date()
-    const months: { key: string; label: string; count: number; total: number }[] = []
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      months.push({
-        key: `${d.getFullYear()}-${d.getMonth()}`,
-        label: d.toLocaleDateString('id-ID', { month: 'short', year: '2-digit' }),
-        count: 0,
-        total: 0,
-      })
-    }
-    const idx = new Map(months.map((m, i) => [m.key, i]))
-    for (const l of loans) {
-      const d = new Date(l.created_at)
-      const i = idx.get(`${d.getFullYear()}-${d.getMonth()}`)
-      if (i !== undefined) {
-        months[i].count++
-        months[i].total += l.amount
-      }
-    }
-    return months
-  }, [loans])
-
-  const byStatus = useMemo(() => {
-    const m = new Map<LoanStatus, number>()
-    for (const l of loans) m.set(l.status, (m.get(l.status) ?? 0) + 1)
-    return [...m.entries()].map(([status, value]) => ({
-      name: LOAN_STATUS_LABEL[status],
-      value,
-      color: LOAN_STATUS_COLOR[status],
-    }))
-  }, [loans])
-
   const recent = loans.slice(0, 5)
 
   if (loading) {
@@ -235,15 +223,24 @@ export default function Dashboard() {
         <div className="flex flex-wrap gap-2">
           <Link
             to="/users/new"
-            className="flex-1 rounded-xl bg-slate-900 px-3 py-2.5 text-center text-xs font-bold text-white transition hover:bg-slate-800 sm:flex-none sm:px-4"
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 py-2.5 text-center text-xs font-bold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg sm:flex-none sm:px-4"
           >
-            + Registrasi Nasabah
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25v4.5m2.25-2.25h-4.5" />
+            </svg>
+            <span>Registrasi Nasabah</span>
           </Link>
           <Link
             to="/loans/new"
-            className="flex-1 rounded-xl bg-primary-600 px-3 py-2.5 text-center text-xs font-bold text-white shadow-sm transition hover:bg-primary-700 sm:flex-none sm:px-4"
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-primary-600 px-3 py-2.5 text-center text-xs font-bold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-primary-700 hover:shadow-lg sm:flex-none sm:px-4"
           >
-            + Pinjaman Baru
+            <svg aria-hidden="true" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 7.5A2.25 2.25 0 014.5 5.25h15A2.25 2.25 0 0121.75 7.5v9a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25v-9z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12h.008v.008H15V12zM18.75 12h.008v.008h-.008V12z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3v4.5m2.25-2.25h-4.5" />
+            </svg>
+            <span>Pinjaman Baru</span>
           </Link>
         </div>
       </div>
@@ -254,9 +251,14 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* KPI utama: dua angka kerja terbesar, dua angka pendukung */}
+      {/* KPI utama: action-reveal shortcut — tiap kartu = shortcut ke halamannya,
+          hover desktop memunculkan shortcut + shadow warna aksen kartu.
+          Di mobile shortcut selalu tampil (bukan hover-only affordance). */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+        <Link
+          to="/loans"
+          className="group block space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_12px_30px_rgb(100_116_139/0.30)] focus-visible:border-slate-400 lg:p-5"
+        >
           <div className="text-[10px] font-bold uppercase text-slate-400 lg:text-[11px]">
             Total Modal Dipinjamkan
           </div>
@@ -266,8 +268,14 @@ export default function Dashboard() {
           <div className="text-[10px] text-slate-500">
             {stats.activeLoans} Pinjaman Berjalan
           </div>
-        </div>
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+          <div className="mt-1 flex -translate-x-1 items-center gap-1 text-[10px] font-bold text-slate-500 opacity-0 transition-[opacity,transform] duration-200 group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 max-lg:translate-x-0 max-lg:opacity-100">
+            Buka pinjaman <span aria-hidden>→</span>
+          </div>
+        </Link>
+        <Link
+          to="/laporan"
+          className="group block space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-emerald-300 hover:shadow-[0_12px_30px_rgb(22_163_74/0.28)] lg:p-5"
+        >
           <div className="text-[10px] font-bold uppercase text-primary-600 lg:text-[11px]">
             Estimasi Profit Bunga (20%)
           </div>
@@ -277,17 +285,29 @@ export default function Dashboard() {
           <div className="text-[10px] font-medium text-primary-700">
             Bunga Flat 20% Terkunci
           </div>
-        </div>
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+          <div className="mt-1 flex -translate-x-1 items-center gap-1 text-[10px] font-bold text-primary-700 opacity-0 transition-[opacity,transform] duration-200 group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 max-lg:translate-x-0 max-lg:opacity-100">
+            Buka laporan <span aria-hidden>→</span>
+          </div>
+        </Link>
+        <Link
+          to="/setoran"
+          className="group block space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-sky-300 hover:shadow-[0_12px_30px_rgb(14_165_233/0.30)] lg:p-5"
+        >
           <div className="text-[10px] font-bold uppercase text-sky-600 lg:text-[11px]">
             Kas Masuk (Pelunasan/Cicil)
           </div>
           <div data-metric className="text-lg font-black text-sky-600 sm:text-xl lg:text-2xl">
             {fmtRp(setoranHariIni)}
           </div>
-          <div className="text-[10px] text-slate-400">Total Realisasi Pelunasan</div>
-        </div>
-        <div className="space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:p-5">
+          <div className="text-[10px] text-slate-400">Setoran tercatat hari ini (WIB)</div>
+          <div className="mt-1 flex -translate-x-1 items-center gap-1 text-[10px] font-bold text-sky-700 opacity-0 transition-[opacity,transform] duration-200 group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 max-lg:translate-x-0 max-lg:opacity-100">
+            Lihat rincian harian <span aria-hidden>→</span>
+          </div>
+        </Link>
+        <Link
+          to="/users"
+          className="group block space-y-1 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-1 hover:border-amber-300 hover:shadow-[0_12px_30px_rgb(245_158_11/0.30)] lg:p-5"
+        >
           <div className="text-[10px] font-bold uppercase text-amber-600 lg:text-[11px]">
             Total Nasabah Terdaftar
           </div>
@@ -297,11 +317,14 @@ export default function Dashboard() {
           <div className="text-[10px] font-semibold text-amber-600">
             {stats.persenLancar}% Status Lancar
           </div>
-        </div>
+          <div className="mt-1 flex -translate-x-1 items-center gap-1 text-[10px] font-bold text-amber-700 opacity-0 transition-[opacity,transform] duration-200 group-focus-within:translate-x-0 group-focus-within:opacity-100 group-hover:translate-x-0 group-hover:opacity-100 max-lg:translate-x-0 max-lg:opacity-100">
+            Lihat nasabah <span aria-hidden>→</span>
+          </div>
+        </Link>
       </div>
 
       {/* Action queue: ubah angka risiko menjadi keputusan yang bisa langsung dibuka */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="action-queue-title">
+      <section className="dm-beam rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5" aria-labelledby="action-queue-title">
         <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h3 id="action-queue-title" className="text-base font-extrabold text-slate-900">Perlu ditindak hari ini</h3>
@@ -310,7 +333,7 @@ export default function Dashboard() {
           <Link to="/loans" className="text-xs font-bold text-primary-700 hover:underline">Buka semua pinjaman →</Link>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Link to="/loans" className="rounded-xl border border-amber-200 bg-amber-50 p-3 transition hover:border-amber-300">
+          <Link to="/loans?filter=due-soon" className="rounded-xl border border-amber-200 bg-amber-50 p-3 transition hover:border-amber-300">
             <span className="block text-2xl font-black tabular-nums text-amber-900">{dueSoon.length}</span>
             <span className="mt-1 block text-xs font-semibold text-amber-800">Mendekati jatuh tempo</span>
           </Link>
@@ -382,19 +405,12 @@ export default function Dashboard() {
                         {fmtRp(sisa)}
                       </span>
                       <div className="flex gap-1">
-                        <a
-                          href={waLink(
-                            d.nasabah.phone,
-                            d.nasabah.full_name,
-                            sisa,
-                            d.installment.due_date.slice(0, 10),
-                          )}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="rounded bg-primary-100 px-2.5 py-1.5 text-[10px] font-bold text-primary-800"
-                        >
-                          💬 WA
-                        </a>
+                        <KontakAksi
+                          phone={d.nasabah.phone}
+                          nama={d.nasabah.full_name}
+                          sisa={sisa}
+                          tempo={d.installment.due_date.slice(0, 10)}
+                        />
                         {rumah && (
                           <a
                             href={rumah}
@@ -466,19 +482,12 @@ export default function Dashboard() {
                         </td>
                         <td className="py-3">
                           <div className="flex justify-center gap-1">
-                            <a
-                              href={waLink(
-                                d.nasabah.phone,
-                                d.nasabah.full_name,
-                                sisa,
-                                d.installment.due_date.slice(0, 10),
-                              )}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="rounded bg-primary-100 px-2 py-1 text-[10px] font-bold text-primary-800 transition hover:bg-primary-200"
-                            >
-                              💬 WA
-                            </a>
+                            <KontakAksi
+                              phone={d.nasabah.phone}
+                              nama={d.nasabah.full_name}
+                              sisa={sisa}
+                              tempo={d.installment.due_date.slice(0, 10)}
+                            />
                             {rumah && (
                               <a
                                 href={rumah}
@@ -548,6 +557,12 @@ export default function Dashboard() {
                         {fmtRp(o.totalTunggakan)}
                       </span>
                       <div className="flex gap-1">
+                        <KontakAksi
+                          phone={o.nasabah.phone}
+                          nama={o.nasabah.full_name}
+                          sisa={o.totalTunggakan}
+                          tempo={o.installments[0].due_date.slice(0, 10)}
+                        />
                         {rumah ? (
                           <a
                             href={rumah}
@@ -626,6 +641,12 @@ export default function Dashboard() {
                         </td>
                         <td className="py-3">
                           <div className="flex justify-center gap-1">
+                            <KontakAksi
+                              phone={o.nasabah.phone}
+                              nama={o.nasabah.full_name}
+                              sisa={o.totalTunggakan}
+                              tempo={o.installments[0].due_date.slice(0, 10)}
+                            />
                             {rumah ? (
                               <a
                                 href={rumah}
@@ -663,59 +684,6 @@ export default function Dashboard() {
               </table>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Charts */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 text-sm font-semibold text-slate-700">
-            Pencairan Pinjaman — 6 Bulan Terakhir
-          </div>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={monthly}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="label" fontSize={12} />
-              <YAxis allowDecimals={false} fontSize={12} />
-              <Tooltip />
-              <Bar dataKey="count" name="jumlah" fill="#16a34a" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="mb-3 text-sm font-semibold text-slate-700">
-            Distribusi Status Pinjaman
-          </div>
-          {byStatus.length === 0 ? (
-            <div className="flex h-[260px] items-center justify-center text-sm text-slate-400">
-              Belum ada data pinjaman
-            </div>
-          ) : (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie
-                  data={byStatus}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={90}
-                  label={(e: { name?: string; value?: number }) =>
-                    `${e.name ?? ''} (${e.value ?? 0})`
-                  }
-                  labelLine={false}
-                  fontSize={11}
-                >
-                  {byStatus.map((s) => (
-                    <Cell key={s.name} fill={s.color} />
-                  ))}
-                </Pie>
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
         </div>
       </div>
 

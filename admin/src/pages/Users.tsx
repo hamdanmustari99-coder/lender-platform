@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { deleteNasabah, listNasabah, subscribeToTables } from '../lib/api'
 import type { NasabahRow } from '../lib/api'
 import { useConfirm } from '../components/ConfirmDialog'
-import { errMsg } from '../lib/format'
+import { errMsg, telHref } from '../lib/format'
 
 /* ============================================================
    Menu Nasabah — tampilan KARTU (mengikuti mockup acuan)
@@ -145,7 +145,17 @@ function NasabahCard({
       {/* ---------- Kontak ---------- */}
       <div className="px-5 pb-3 flex items-center gap-2 text-xs">
         <span className="text-slate-400">📱</span>
-        <span className="font-semibold text-slate-700">{row.phone || '—'}</span>
+        {telHref(row.phone) ? (
+          <a
+            href={telHref(row.phone)!}
+            title={`Telepon ${row.full_name || 'nasabah'}`}
+            className="font-semibold text-slate-700 hover:text-sky-700 hover:underline"
+          >
+            {row.phone}
+          </a>
+        ) : (
+          <span className="font-semibold text-slate-700">{row.phone || '—'}</span>
+        )}
       </div>
 
       {/* ---------- Nominal pinjaman ke owner (M25) ---------- */}
@@ -275,6 +285,15 @@ function NasabahCard({
             className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-xs font-bold hover:bg-emerald-700 transition active:scale-[0.99]"
           >
             WA
+          </a>
+        )}
+        {telHref(row.phone) && (
+          <a
+            href={telHref(row.phone)!}
+            title={`Telepon ${row.full_name || 'nasabah'}`}
+            className="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center text-sm hover:bg-sky-700 transition active:scale-[0.99]"
+          >
+            📞
           </a>
         )}
         <button

@@ -10,7 +10,7 @@ import {
 } from '../lib/api'
 import type { Installment, Loan, NasabahDocument, Profile } from '../lib/api'
 import EmergencyContacts from '../components/EmergencyContacts'
-import { fmtDate, fmtRp, KYC_STATUS_CLASS, KYC_STATUS_LABEL, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
+import { fmtDate, fmtRp, KYC_STATUS_CLASS, KYC_STATUS_LABEL, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg, telHref } from '../lib/format'
 
 /** Cicilan telat: belum lunas & due_date < hari ini, atau paid_at > due_date. */
 function isTelat(inst: Installment): boolean {
@@ -111,6 +111,27 @@ export default function UserDetail() {
             LANCAR
           </span>
         )}
+        {/* Aksi kontak cepat: telpon & WA langsung dari header */}
+        {telHref(profile.phone) && (
+          <a
+            href={telHref(profile.phone)!}
+            title={`Telepon ${profile.phone}`}
+            className="ml-auto inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-sky-700 active:scale-[0.99]"
+          >
+            📞 Telepon
+          </a>
+        )}
+        {profile.phone && (
+          <a
+            href={`https://wa.me/${profile.phone.replace(/\D/g, '').replace(/^0/, '62')}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Chat WhatsApp"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-bold text-white transition hover:bg-emerald-700 active:scale-[0.99]"
+          >
+            💬 WhatsApp
+          </a>
+        )}
       </div>
 
       {/* Foto & dokumen nasabah */}
@@ -202,6 +223,26 @@ export default function UserDetail() {
           <div className="mb-3 text-sm font-semibold text-slate-700">Profil (KTP)</div>
           <dl className="space-y-2 text-sm">
             <Row label="No. HP Utama" value={profile.phone || '—'} />
+            {telHref(profile.phone) && (
+              <div className="flex gap-2 pt-1">
+                <a
+                  href={telHref(profile.phone)!}
+                  title={`Telepon ${profile.phone}`}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-sky-700 active:scale-[0.99]"
+                >
+                  📞 Telepon
+                </a>
+                <a
+                  href={`https://wa.me/${profile.phone!.replace(/\D/g, '').replace(/^0/, '62')}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Chat WhatsApp"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-emerald-700 active:scale-[0.99]"
+                >
+                  💬 WhatsApp
+                </a>
+              </div>
+            )}
             <Row label="NIK" value={profile.nik || '—'} />
             <Row
               label="Tempat/Tgl Lahir"

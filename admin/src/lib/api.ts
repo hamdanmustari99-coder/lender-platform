@@ -603,11 +603,23 @@ export interface SetoranHarian {
   count: number
 }
 
+/**
+ * Tanggal WIB (Asia/Jakarta, UTC+7) dari timestamp ISO.
+ *
+ * PostgREST mengembalikan timestamptz sebagai string UTC — slice(0,10)
+ * langsung memberi tanggal UTC, sedangkan seluruh agregasi server
+ * (setoran_harian, kas_harian, laporan_bulanan) memotong periode di
+ * Asia/Jakarta. Geser instant +7 jam lalu baca sebagai UTC supaya
+ * pembayaran yang dicatat 00:00–07:00 WIB tidak terhitung "kemarin".
+ */
+export const wibDate = (iso: string): string =>
+  new Date(new Date(iso).getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
 /** Agregasi setoran per admin per hari (client-side, data MVP kecil). */
 export function aggregateSetoran(payments: Payment[]): SetoranHarian[] {
   const m = new Map<string, SetoranHarian>()
   for (const p of payments) {
-    const tanggal = p.paid_at.slice(0, 10)
+    const tanggal = wibDate(p.paid_at)
     const key = `${tanggal}|${p.dicatat_oleh ?? '-'}`
     const cur = m.get(key) ?? {
       tanggal,
@@ -643,7 +655,7 @@ export function buildPiutang(
   installmentsByLoan: Map<string, Installment[]>,
 ): PiutangNasabah[] {
   const m = new Map<string, PiutangNasabah>()
-  const today = new Date().toISOString().slice(0, 10)
+  const today = wibDate(new Date().toISOString())
   for (const l of loans) {
     if (l.status === 'rejected') continue
     const tagihan =

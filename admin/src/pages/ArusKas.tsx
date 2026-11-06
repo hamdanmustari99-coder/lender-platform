@@ -141,7 +141,7 @@ export default function ArusKas() {
         </div>
         <button
           onClick={() => setShowModal(true)}
-          className="rounded-xl bg-primary-600 px-5 py-2.5 text-xs font-bold text-white shadow-md transition hover:bg-primary-700"
+          className="min-h-11 rounded-xl bg-primary-600 px-5 py-2.5 text-xs font-bold text-white shadow-sm transition hover:bg-primary-700"
         >
           + Catat Transaksi Kas
         </button>

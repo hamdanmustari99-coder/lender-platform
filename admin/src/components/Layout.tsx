@@ -15,14 +15,14 @@ const NAV = [
   { to: '/loans', label: 'Pinjaman', short: 'Pinjaman', end: false, icon: LoanIcon },
   { to: '/users', label: 'Nasabah', short: 'Nasabah', end: false, icon: UsersIcon },
   { to: '/arus-kas', label: 'Arus Kas', short: 'Kas', end: false, icon: CashIcon },
-  { to: '/setoran', label: 'Setoran', short: 'Setoran', end: false, icon: WalletIcon },
+  { to: '/setoran', label: 'Revisi', short: 'Revisi', end: false, icon: WalletIcon },
   { to: '/laporan', label: 'Laporan', short: 'Laporan', end: false, icon: ChartIcon },
 ]
 
 const tabBase =
-  'min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold transition whitespace-nowrap inline-flex items-center'
-const tabIdle = 'text-slate-300 hover:text-white hover:bg-slate-800 focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
-const tabActive = 'bg-primary-600 text-white shadow-sm font-bold focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
+  'dm-nav-tab min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap inline-flex items-center focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
+const tabIdle = 'dm-nav-tab-idle text-slate-300'
+const tabActive = 'dm-nav-tab-active bg-primary-600 text-white font-bold focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
 
 export default function Layout() {
   return (
@@ -61,7 +61,7 @@ export default function Layout() {
             <NavLink
               to="/loans/new"
               className={({ isActive }) =>
-                `${tabBase} ${isActive ? tabActive : 'bg-primary-600 text-white hover:bg-primary-700 font-bold'}`
+                `${tabBase} ${isActive ? tabActive : 'dm-nav-cta bg-primary-600 text-white font-bold'}`
               }
             >
               + Pinjaman Baru
