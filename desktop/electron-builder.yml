@@ -1,0 +1,37 @@
+appId: id.swfinance.desktop
+productName: SWFinance
+copyright: © 2026 SWFinance Core System
+
+directories:
+  output: release
+  buildResources: .
+
+files:
+  - main.js
+  - preload.cjs
+  - dist/**/*
+  - icon.ico
+
+# Kredensial Sudah dibaca runtime dari ../admin/.env oleh main process —
+# .env TIDAK ikut dipack, tidak ada secret di installer.
+extraMetadata:
+  main: main.js
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: icon.ico
+  # Tanpa kode penandatangan resmi: rilis internal/petugas. Windows SmartScreen
+  # akan menampilkan peringatan "publisher unknown" saat instalasi pertama.
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: SWFinance
+  artifactName: SWFinance-Setup-${version}.${ext}
+
+compression: maximum

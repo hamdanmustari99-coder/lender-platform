@@ -7,6 +7,9 @@ mobile/dart_defines.json
 # node
 node_modules/
 admin/dist/
+desktop/dist/
+desktop/release/
+desktop/node_modules/
 
 # flutter / dart
 mobile/build/

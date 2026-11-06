@@ -237,7 +237,7 @@ export default function Loans() {
         </div>
         {/* Filter rentang tanggal peminjaman */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <label className="flex items-center gap-2 text-xs font-bold text-slate-600">
+          <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold text-slate-600">
             Peminjaman
             <span className="flex items-center gap-1.5">
               dari

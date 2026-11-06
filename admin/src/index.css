@@ -131,6 +131,11 @@ td,
 .v-brand-word-glow { text-shadow: 0 0 14px rgba(242, 237, 225, 0.18); }
 .v-brand-accent-glow { text-shadow: 0 0 16px rgba(52, 211, 153, 0.45), 0 0 4px rgba(201, 164, 76, 0.20); }
 
+/* Bottom bar mobile: item harus bisa menyusut di 320-390px (label truncate),
+   kalau tidak 5 item memaksa bar selebar 480px dan halaman overflow. */
+.v-bottom-item { min-width: 0; }
+.v-bottom-item > span:last-child { max-width: 100%; }
+
 /* Kontras teks konten: metadata abu-abu dibuat charcoal agar terbaca jelas. */
 .text-slate-400 { color: #374151 !important; }
 .text-slate-500 { color: #1f2937 !important; }

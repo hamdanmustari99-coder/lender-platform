@@ -1,0 +1,1 @@
+{"name":"swfinance-desktop","productName":"SWFinance","version":"1.0.0","description":"SWFinance — Panel Operasional (desktop shell)","author":"SWFinance","private":true,"main":"main.js","scripts":{"start":"electron .","dist":"node scripts/sync-web.js && electron-builder --win nsis"},"devDependencies":{"electron":"^45.2.3","electron-builder":"^26.18.0"}}

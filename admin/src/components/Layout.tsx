@@ -148,7 +148,7 @@ export default function Layout() {
               to={n.to}
               end={n.end}
               className={({ isActive }) =>
-                `flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-semibold transition ${
+                `v-bottom-item flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-semibold transition ${
                   isActive
                     ? 'text-[#4ade80]'
                     : 'text-[#9fb3a6] active:text-[#f2ede1]'
