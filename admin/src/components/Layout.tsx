@@ -20,32 +20,32 @@ const NAV = [
 ]
 
 const tabBase =
-  'dm-nav-tab min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap inline-flex items-center focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
-const tabIdle = 'dm-nav-tab-idle text-slate-300'
-const tabActive = 'dm-nav-tab-active bg-primary-600 text-white font-bold focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-800'
+  'dm-nav-tab min-h-11 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap inline-flex items-center focus-visible:ring-2 focus-visible:ring-primary-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#07231a]'
+const tabIdle = 'dm-nav-tab-idle bg-[rgba(242,237,225,0.07)] text-[#cfd8cc]'
+const tabActive = 'dm-nav-tab-active bg-primary-600 text-white font-bold focus-visible:ring-2 focus-visible:ring-primary-300 focus-visible:ring-offset-2 focus-visible:ring-offset-[#07231a]'
 
 export default function Layout() {
   return (
     <div className="flex min-h-screen flex-col bg-slate-100 text-slate-800 antialiased">
       {/* TOP NAVBAR */}
-      <header className="sticky top-0 z-30 bg-admin-dark text-white shadow-md">
+      <header className="v-hairline-b sticky top-0 z-30 bg-gradient-to-b from-[#08281f] to-[#07231a] text-white shadow-md">
         <div className="mx-auto flex h-14 items-center justify-between px-3 sm:h-16 sm:px-4 lg:max-w-7xl">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-sm font-black text-slate-950 sm:h-9 sm:w-9 sm:text-base">
+            <div className="v-brand-mark v-brand-glow flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-black sm:h-9 sm:w-9 sm:text-base">
               SW
             </div>
             <div className="min-w-0">
-              <span className="block truncate text-base font-extrabold tracking-tight sm:text-lg">
-                SW<span className="text-primary-400">Finance</span>
+              <span className="v-brand-word v-brand-word-glow block truncate text-base font-extrabold tracking-tight sm:text-lg">
+                SW<span className="v-brand-accent-glow text-primary-400">Finance</span>
               </span>
-              <span className="hidden rounded bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-primary-400 sm:inline-block">
+              <span className="hidden rounded bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-[#d9b96c] sm:inline-block">
                 ADMIN &amp; OWNER PANEL
               </span>
             </div>
           </div>
 
           {/* Navigation Tabs (desktop only) */}
-          <nav className="hidden items-center gap-1 rounded-xl bg-slate-800 p-1 lg:flex">
+          <nav className="hidden items-center gap-1.5 rounded-xl bg-[#04150f]/60 p-1 lg:flex">
             {NAV.map((n) => (
               <NavLink
                 key={n.to}
@@ -74,7 +74,7 @@ export default function Layout() {
               <span className="block text-xs font-bold text-white">
                 Owner (Super Admin)
               </span>
-              <span className="block text-[10px] font-medium text-primary-400">
+              <span className="block text-[10px] font-medium text-[#d9b96c]">
                 Bunga Flat 20% Active
               </span>
             </div>
@@ -82,7 +82,7 @@ export default function Layout() {
               onClick={() => void supabase.auth.signOut()}
               title="Keluar"
               aria-label="Keluar"
-              className="rounded-xl bg-slate-800 p-2 text-slate-300 transition hover:bg-rose-900/60 hover:text-rose-200"
+              className="rounded-xl border border-slate-600/60 bg-transparent p-2 text-slate-300 transition hover:border-rose-400/50 hover:bg-rose-900/40 hover:text-rose-200"
             >
               <svg
                 className="h-4 w-4"
@@ -138,7 +138,7 @@ export default function Layout() {
 
       {/* BOTTOM NAVIGATION BAR — mobile only */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-700 bg-admin-dark pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="v-hairline-t fixed inset-x-0 bottom-0 z-40 bg-gradient-to-b from-[#082821] to-[#04150f] pb-[env(safe-area-inset-bottom)] lg:hidden"
         aria-label="Menu utama"
       >
         <div className="flex items-stretch justify-around">
@@ -150,8 +150,8 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex flex-1 flex-col items-center gap-0.5 py-2.5 text-[10px] font-semibold transition ${
                   isActive
-                    ? 'text-primary-400'
-                    : 'text-slate-400 active:text-slate-200'
+                    ? 'text-[#4ade80]'
+                    : 'text-[#9fb3a6] active:text-[#f2ede1]'
                 }`
               }
             >
