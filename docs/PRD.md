@@ -1,4 +1,4 @@
-# PRD — Danaku Lender Platform
+# PRD — SWFinance Lender Platform
 
 > ⚠️ **DOKUMEN INI DUPLIKAT LAMA (v1.0, 31 Okt 2026) — JANGAN DIPAKAI.**
 > Acuan resmi adalah **`PRD.md` di root repo** (v3.1, 5 Nov 2026 — model bank keliling, M0–M20).
@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| **Produk** | Danaku — platform pinjaman (lending) mobile-first |
+| **Produk** | SWFinance — platform pinjaman (lending) mobile-first |
 | **Versi dokumen** | v1.0 — 31 Oktober 2026 (ARSIP) |
 | **Status** | MVP dalam pengembangan (fase build) |
 | **Pemilik** | Operator |
@@ -17,7 +17,7 @@
 
 ## 1. Latar Belakang & Masalah
 
-Ada permintaan pinjaman konsumtif jangka pendek yang belum terlayani dengan proses cepat dan digital penuh. Danaku mengisi ceruk ini: pengajuan dari HP dalam hitungan menit, verifikasi operator via admin web, dan siklus pinjaman (approve → cair → cicilan → lunas) yang terpantau dari satu dashboard.
+Ada permintaan pinjaman konsumtif jangka pendek yang belum terlayani dengan proses cepat dan digital penuh. SWFinance mengisi ceruk ini: pengajuan dari HP dalam hitungan menit, verifikasi operator via admin web, dan siklus pinjaman (approve → cair → cicilan → lunas) yang terpantau dari satu dashboard.
 
 ## 2. Tujuan Produk & Metrik Sukses
 
@@ -176,4 +176,4 @@ Enum status loan: `submitted, under_review, approved, rejected, disbursed, activ
 1. Batas jumlah pinjaman aktif simultan per borrower? (usulan: 1 untuk MVP)
 2. Denda keterlambatan: persentase/hari atau flat? (usulan: 0.5%/hari, cap 10% pokok — v1.1)
 3. Produk setelah MVP: bunga flat tetap atau sliding berdasarkan skor?
-4. Branding (nama "Danaku" sementara), logo, dan warna akhir.
+4. Branding (nama "SWFinance" sementara), logo, dan warna akhir.

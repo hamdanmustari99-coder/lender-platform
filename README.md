@@ -1,4 +1,4 @@
-# Danaku — Bank Keliling Platform
+# SWFinance — Bank Keliling Platform
 
 Platform pinjaman mikro dengan penagihan door-to-door: **admin web (React+TS+Vite)** + **Supabase** (Postgres + Auth + Storage + Realtime) sebagai backend.
 

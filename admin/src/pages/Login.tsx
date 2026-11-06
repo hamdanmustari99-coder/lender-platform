@@ -36,10 +36,10 @@ export default function Login() {
       >
         <div className="space-y-2 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 text-2xl font-black text-white shadow-lg shadow-emerald-500/30">
-            DM
+            SW
           </div>
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">
-            Dana<span className="text-primary-600">Modal</span>
+            SW<span className="text-primary-600">Finance</span>
           </h1>
           <p className="text-xs font-medium text-slate-500">
             Sistem Manajemen Pinjaman Dana &amp; Modal Usaha
@@ -117,7 +117,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-[11px] text-slate-400">
-          &copy; 2026 DanaModal Core System. Sesuai Dokumen PRD.
+          &copy; 2026 SWFinance Core System. Sesuai Dokumen PRD.
         </p>
       </form>
     </div>

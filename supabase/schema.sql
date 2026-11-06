@@ -1,5 +1,5 @@
 -- ============================================================
--- DANAKU Lender Platform — Supabase schema + RLS
+-- SWFinance Lender Platform — Supabase schema + RLS
 -- Jalankan SEKALI di Supabase Dashboard > SQL Editor > New query
 -- ============================================================
 

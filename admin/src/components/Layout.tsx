@@ -32,11 +32,11 @@ export default function Layout() {
         <div className="mx-auto flex h-14 items-center justify-between px-3 sm:h-16 sm:px-4 lg:max-w-7xl">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary-500 text-sm font-black text-slate-950 sm:h-9 sm:w-9 sm:text-base">
-              DM
+              SW
             </div>
             <div className="min-w-0">
               <span className="block truncate text-base font-extrabold tracking-tight sm:text-lg">
-                Dana<span className="text-primary-400">Modal</span>
+                SW<span className="text-primary-400">Finance</span>
               </span>
               <span className="hidden rounded bg-slate-800 px-2 py-0.5 font-mono text-[10px] text-primary-400 sm:inline-block">
                 ADMIN &amp; OWNER PANEL

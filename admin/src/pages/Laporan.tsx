@@ -191,7 +191,7 @@ export default function Laporan() {
 
     // 1. Ringkasan + arus kas
     unduhCSV(`${pre}_ringkasan.csv`, [
-      ['Laporan Bulanan DanaModal'],
+      ['Laporan Bulanan SWFinance'],
       ['Periode', `${periode.nama_bulan} ${periode.tahun}`],
       ['Rentang', `${periode.dari} s/d ${periode.sampai}`],
       [],
@@ -330,7 +330,7 @@ export default function Laporan() {
           <div className="flex items-start justify-between border-b-2 border-slate-900 pb-3">
             <div>
               <h2 className="text-2xl font-black tracking-tight text-slate-900">
-                Dana<span className="text-emerald-600">Modal</span>
+                SW<span className="text-emerald-600">Finance</span>
               </h2>
               <p className="text-xs text-slate-500">
                 Laporan Manajemen Peminjaman Dana &amp; Modal Usaha
@@ -637,7 +637,7 @@ export default function Laporan() {
         {/* ---------- Footer laporan (khusus tampil saat dicetak) ---------- */}
         <div className="hidden border-t border-slate-200 pt-3 text-[10px] text-slate-400 print:block">
           <p>
-            DanaModal — Laporan Bulanan {periode?.nama_bulan} {periode?.tahun}. Angka dihitung
+            SWFinance — Laporan Bulanan {periode?.nama_bulan} {periode?.tahun}. Angka dihitung
             server-side (RPC laporan_bulanan); terkumpul bersih sudah memperhitungkan koreksi
             pembayaran.
           </p>

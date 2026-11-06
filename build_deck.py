@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Danaku deck v2 — custom polished design, dark emerald + white cards."""
+"""SWFinance deck v2 — custom polished design, dark emerald + white cards."""
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
@@ -80,7 +80,7 @@ def title(slide, top, text, size=32):
 def sub(slide, top, text, size=13.5):
     textbox(slide, 0.7, top, 11.9, 0.6, text, size=size, bold=False, color=MUTED, align=PP_ALIGN.LEFT)
 
-def footer(slide, left_text="Danaku  •  Bank Keliling Digital", right_text=""):
+def footer(slide, left_text="SWFinance  •  Bank Keliling Digital", right_text=""):
     textbox(slide, 0.7, 7.0, 8, 0.3, left_text, size=8.5, color="C4D4CB")
     textbox(slide, 10.2, 7.0, 2.4, 0.3, right_text or "", size=8.5, color="C4D4CB", align=PP_ALIGN.RIGHT)
 
@@ -90,7 +90,7 @@ def accent_bar(slide, top=0.0):
 # ---------- 1 COVER ----------
 s = prs.slides.add_slide(blank); bg(s); accent_bar(s)
 textbox(s, 0.7, 1.5, 2.2, 0.35, "BANK KELILING  •  V2.0", size=12, bold=True, color=ACC)
-title(s, 1.9, "Danaku", size=54)
+title(s, 1.9, "SWFinance", size=54)
 textbox(s, 0.7, 3.15, 11.9, 0.7, "Bank Keliling Digital", size=30, bold=False, color=WHITE)
 sub(s, 4.05, "Petugas lapangan  •  Owner  •  Nasabah  —  satu platform operasional", size=15)
 shape(s, 0.7, 4.9, 1.6, 0.02, ACC, shape_type=MSO_SHAPE.RECTANGLE)
@@ -245,14 +245,14 @@ footer(s, right_text="9 / 10")
 
 # ---------- 10 CLOSING ----------
 s = prs.slides.add_slide(blank); bg(s); accent_bar(s)
-textbox(s, 0.7, 1.6, 11.9, 0.4, "DANAKU  •  BANK KELILING DIGITAL", size=12, bold=True, color=ACC, align=PP_ALIGN.CENTER)
+textbox(s, 0.7, 1.6, 11.9, 0.4, "SWFINANCE  •  BANK KELILING DIGITAL", size=12, bold=True, color=ACC, align=PP_ALIGN.CENTER)
 textbox(s, 0.7, 2.1, 11.9, 1.2, "Terima kasih", size=54, bold=True, color=WHITE, align=PP_ALIGN.CENTER)
 textbox(s, 0.7, 3.4, 11.9, 0.6, "Siap demo live: HP petugas  •  Web owner  •  HP nasabah", size=15, color=MUTED, align=PP_ALIGN.CENTER)
 c1 = shape(s, 4.15, 4.5, 2.4, 0.9, ACC); c1.text_frame.paragraphs[0].text="▶  Mulai Demo"
 c1.text_frame.paragraphs[0].font.size=Pt(14); c1.text_frame.paragraphs[0].font.bold=True; c1.text_frame.paragraphs[0].font.color.rgb=hexcolor(WHITE); c1.text_frame.paragraphs[0].alignment=PP_ALIGN.CENTER; c1.text_frame.vertical_anchor=MSO_ANCHOR.MIDDLE
 c2 = shape(s, 6.8, 4.5, 2.4, 0.9, CARD); c2.text_frame.paragraphs[0].text="Tanya Jawab"
 c2.text_frame.paragraphs[0].font.size=Pt(14); c2.text_frame.paragraphs[0].font.bold=True; c2.text_frame.paragraphs[0].font.color.rgb=hexcolor(INK); c2.text_frame.paragraphs[0].alignment=PP_ALIGN.CENTER; c2.text_frame.vertical_anchor=MSO_ANCHOR.MIDDLE
-footer(s, left_text="Danaku  •  disiapkan untuk presentasi klien", right_text="10 / 10")
+footer(s, left_text="SWFinance  •  disiapkan untuk presentasi klien", right_text="10 / 10")
 
-prs.save("C:/Users/simpl/lender-platform/Danaku-Presentasi-Klien.pptx")
+prs.save("C:/Users/simpl/lender-platform/SWFinance-Presentasi-Klien.pptx")
 print("saved OK — 10 slides custom design")

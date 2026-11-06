@@ -1,4 +1,4 @@
-# Checklist Demo Danaku ke Klien
+# Checklist Demo SWFinance ke Klien
 
 **Durasi:** ±20 menit. **Akun:** admin web `admin@danaku.id / admin123` (http://localhost:5173).
 
