@@ -1,17 +1,25 @@
 'use strict'
-// SWFinance desktop shell — Electron main process. ( Versi hardened QA )
-// Membungkus build web admin (desktop/dist) dalam jendela branded.
-// Nilai Supabase dibaca dari ../admin/.env (read-only) saat startup,
-// lalu dikirim ke renderer lewat IPC — tidak di-hardcode, tidak di-bundle.
+// SWFinance desktop shell — Electron main process. (v2: config layer)
+// Urutan sumber konfigurasi Supabase:
+//   1) userData/swf-config.json  -> diisi lewat layar Setup first-run
+//      (per-mesin, survive update app)
+//   2) ../admin/.env             -> fallback mode dev (jalannya di dalam repo)
+// Renderer mengambil nilai lewat IPC; tidak ada yang di-hardcode.
 
 const { app, BrowserWindow, shell, ipcMain } = require('electron')
 const path = require('path')
 const fs = require('fs')
 
-const ROOT = path.join(__dirname, '..')
+// Wajib sebelum app ready: paksa software rendering. GPU client laptop
+// bermacam-macam (VM/Intel lama) — compositing layer besar (gradien
+// full-screen) di GPU lemah bikin layar putih + teks hilang + glitch klik.
+// Admin CRUD ini tidak butuh GPU; software render = identik di semua mesin.
+app.disableHardwareAcceleration()
 
-// ---- Baca ../admin/.env (read-only) ----
-function readAdminEnv() {
+const ROOT = path.join(__dirname, '..')
+const CONFIG_FILE = () => path.join(app.getPath('userData'), 'swf-config.json')
+
+function readRepoEnv() {
   const out = {}
   try {
     const raw = fs.readFileSync(path.join(ROOT, 'admin', '.env'), 'utf8')
@@ -28,22 +36,78 @@ function readAdminEnv() {
       out[m[1]] = v
     }
   } catch {
-    // .env tidak ada — biarkan kosong; UI sudah punya layar "belum dikonfigurasi"
+    // repo .env tidak ada (laptop klien) — biarkan kosong
   }
   return out
 }
 
-const ADMIN_ENV = readAdminEnv()
-const SUPA = {
-  url: ADMIN_ENV.VITE_SUPABASE_URL || '',
-  anonKey: ADMIN_ENV.VITE_SUPABASE_ANON_KEY || '',
+function fileConfig() {
+  try {
+    const raw = fs.readFileSync(CONFIG_FILE(), 'utf8')
+    const j = JSON.parse(raw)
+    if (j && typeof j.url === 'string' && typeof j.anonKey === 'string') return j
+  } catch {
+    // belum di-setup
+  }
+  return null
 }
 
-// PENTING: preload memakai ipcRenderer.sendSync — pasangan yang benar di sini
-// adalah ipcMain.on + event.returnValue. (ipcMain.handle hanya merespons
-// ipcRenderer.invoke; salah pairing membuat renderer thread membeku.)
+function bakedConfig() {
+  try {
+    const raw = fs.readFileSync(
+      path.join(__dirname, 'dist', 'swf-config.json'),
+      'utf8',
+    )
+    const j = JSON.parse(raw)
+    if (j && typeof j.url === 'string' && typeof j.anonKey === 'string') return j
+  } catch {
+    // dist lama tanpa baked config
+  }
+  return null
+}
+
+function currentConfig() {
+  return (
+    fileConfig() ||
+    bakedConfig() || {
+      url: readRepoEnv().VITE_SUPABASE_URL || '',
+      anonKey: readRepoEnv().VITE_SUPABASE_ANON_KEY || '',
+    }
+  )
+}
+
+function validConfig(cfg) {
+  if (
+    !cfg ||
+    typeof cfg.url !== 'string' ||
+    !cfg.url.startsWith('https://') ||
+    typeof cfg.anonKey !== 'string' ||
+    cfg.anonKey.length <= 20
+  ) {
+    return false
+  }
+  // Pengaman: anon/publishable key BOLEH, secret/service_role TIDAK BOLEH.
+  // Jika service_role keselip di isi, semua kebijakan RLS bisa dilewati.
+  const k = cfg.anonKey.toLowerCase()
+  if (k.includes('sb_secret_') || k.includes('service_role')) {
+    return false
+  }
+  return true
+}
+
+// sendSync (baca) dipasangkan ipcMain.on + event.returnValue — JANGAN diganti
+// ipcMain.handle; salah pairing membekukan renderer thread.
 ipcMain.on('swf:get-supabase-config', (event) => {
-  event.returnValue = SUPA
+  event.returnValue = currentConfig()
+})
+
+ipcMain.handle('swf:set-supabase-config', (_event, cfg) => {
+  if (!validConfig(cfg)) {
+    return { ok: false, error: 'URL harus https:// dan anon key minimal 20 karakter.' }
+  }
+  fs.mkdirSync(path.dirname(CONFIG_FILE()), { recursive: true })
+  fs.writeFileSync(CONFIG_FILE(), JSON.stringify({ url: cfg.url.trim(), anonKey: cfg.anonKey.trim() }, null, 2))
+  return { ok: true }
 })
 
 function createWindow() {
@@ -77,14 +141,11 @@ function createWindow() {
   })
   win.webContents.on('will-attach-webview', (event) => event.preventDefault())
 
-  // Link eksternal (wa.me, maps, docs) terbuka di browser default — bukan di app
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://')) shell.openExternal(url)
     return { action: 'deny' }
   })
 
-  // Hardening: tolak semua permission request (kamera/lokasi/notifikasi) —
-  // aplikasi ini tidak membutuhkannya; izinkan eksplisit jika suatu hari perlu.
   win.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => {
     callback(false)
   })

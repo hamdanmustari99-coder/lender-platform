@@ -235,37 +235,39 @@ export default function Loans() {
             </button>
           ))}
         </div>
-        {/* Filter rentang tanggal peminjaman */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <label className="flex min-w-0 flex-wrap items-center gap-2 text-xs font-bold text-slate-600">
-            Peminjaman
-            <span className="flex items-center gap-1.5">
-              dari
+        {/* Filter rentang tanggal peminjaman — grid 2 kolom sama lebar di HP
+            supaya kedua date-picker rata; sebelumnya flex-wrap membuat lebar
+            intrinsik tiap input berbeda sehingga barisnya terlihat acak. */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+          <span className="text-xs font-bold text-slate-600 sm:pb-3">Peminjaman</span>
+          <div className="grid grid-cols-2 gap-2 sm:w-auto">
+            <label className="flex min-w-0 flex-col gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">dari</span>
               <input
                 type="date"
                 value={dateFrom}
                 max={dateTo || undefined}
                 onChange={(e) => setDateParam('dari', e.target.value)}
                 aria-label="Tanggal mulai peminjaman"
-                className="min-h-11 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-medium text-slate-800 focus:border-primary-500 focus:outline-none"
+                className="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-medium text-slate-800 focus:border-primary-500 focus:outline-none"
               />
-            </span>
-            <span className="flex items-center gap-1.5">
-              sampai
+            </label>
+            <label className="flex min-w-0 flex-col gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wide text-slate-400">sampai</span>
               <input
                 type="date"
                 value={dateTo}
                 min={dateFrom || undefined}
                 onChange={(e) => setDateParam('sampai', e.target.value)}
                 aria-label="Tanggal akhir peminjaman"
-                className="min-h-11 rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-sm font-medium text-slate-800 focus:border-primary-500 focus:outline-none"
+                className="min-h-11 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-medium text-slate-800 focus:border-primary-500 focus:outline-none"
               />
-            </span>
-          </label>
+            </label>
+          </div>
           {hasDateFilter && (
             <button
               onClick={clearDateFilter}
-              className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100"
+              className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 sm:mb-0"
             >
               Reset tanggal ({filtered.length} hasil)
             </button>

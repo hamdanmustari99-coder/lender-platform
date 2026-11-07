@@ -11,6 +11,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { buatPdf } from '../lib/report-pdf'
+import { saveAndShare, saveCsv, toCsv } from '../lib/export'
 import {
   fetchLaporanBulanan,
   fetchLaporanRingkasan,
@@ -33,18 +35,18 @@ import { errMsg, fmtDate, fmtRp } from '../lib/format'
    top nasabah, arus kas, metode bayar, dan kinerja admin —
    divisualkan dengan grafik, bukan tabel doang.
 
-   Ekspor:
-     * PDF  -> window.print() + stylesheet @media print (index.css).
-               Hasilnya PDF asli A4 dengan teks yang bisa di-select,
-               tanpa dependency tambahan.
-     * CSV  -> Blob + download, 3 berkas logis (ringkasan, tren,
-               top nasabah).
+   Ekspor (lib/export.ts + lib/report-pdf.ts):
+     * PDF  -> jsPDF merender laporan ke byte PDF asli. Dulu window.print(),
+               tapi WebView Android tidak punya print sehingga tombol mati.
+     * CSV  -> 3 berkas logis (ringkasan, tren, top nasabah).
+     Di web: unduhan blob. Di APK: tulis ke Documents/SWFinance + share sheet.
    ============================================================ */
 
 const NAMA_BULAN = [
   'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
 ]
+
 
 /** Warna tiap status keandalan — dipakai grafik donat & bar */
 const STATUS_WARNA: Record<string, string> = {
@@ -81,31 +83,6 @@ function RpTooltip({
   )
 }
 
-/** Unduh CSV dari array of arrays */
-function unduhCSV(namaFile: string, baris: (string | number)[][]) {
-  const csv = baris
-    .map((r) =>
-      r
-        .map((sel) => {
-          const s = String(sel ?? '')
-          // Bungkus dengan tanda kutip kalau ada koma/tanda kutip/newline
-          return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
-        })
-        .join(','),
-    )
-    .join('\r\n')
-  // BOM UTF-8 supaya Excel di Windows tidak rusak karakter Indonesia
-  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = namaFile
-  a.click()
-  // Revoke ditunda: kalau langsung di-revoke, sebagian browser (Firefox/Safari)
-  // membatalkan download karena blob sudah tidak ada saat proses mulai.
-  setTimeout(() => URL.revokeObjectURL(url), 60_000)
-}
-
 export default function Laporan() {
   const [bulan, setBulan] = useState<number>(new Date().getMonth() + 1)
   const [tahun, setTahun] = useState<number>(new Date().getFullYear())
@@ -120,6 +97,9 @@ export default function Laporan() {
   } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  /** null = idle, 'pdf' / 'csv' = ekspor sedang jalan */
+  const [eksporBusy, setEksporBusy] = useState<'pdf' | 'csv' | null>(null)
+  const [eksporInfo, setEksporInfo] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -184,69 +164,95 @@ export default function Laporan() {
     (t) => !t.Pencairan && !t.Terkumpul && !t['Jatuh Tempo'],
   )
 
-  const eksporCSV = () => {
+  const eksporCSV = async () => {
     if (!lap || !rk || !periode) return
     const p = `${periode.tahun}-${String(periode.bulan).padStart(2, '0')}`
     const pre = `laporan_${p}`
+    setEksporBusy('csv')
+    setEksporInfo('')
+    try {
+      // 1. Ringkasan + arus kas
+      await saveCsv(
+        `${pre}_ringkasan.csv`,
+        toCsv([
+          ['Laporan Bulanan SWFinance'],
+          ['Periode', `${periode.nama_bulan} ${periode.tahun}`],
+          ['Rentang', `${periode.dari} s/d ${periode.sampai}`],
+          [],
+          ['Metrik', 'Nilai (Rp)'],
+          ['Modal dipinjamkan (pencairan)', rk.pencairan],
+          ['Pinjaman baru', rk.pinjaman_baru],
+          ['Nasabah baru', rk.nasabah_baru],
+          ['Tagihan jatuh tempo', rk.jatuh_tempo],
+          ['Terkumpul (bruto)', rk.terkumpul],
+          ['Koreksi pembayaran', rk.koreksi],
+          ['Terkumpul bersih', rk.terkumpul_bersih],
+          ['Kolektibilitas (%)', kolektibilitas],
+          ['Laba bunga', rk.laba_bunga],
+          ['Sisa piutang', rk.sisa_piutang],
+          ['Total modal berjalan', rk.total_modal],
+          ['Pinjaman berjalan', rk.pinjaman_berjalan],
+          ['Nasabah aktif (bayar bulan ini)', rk.nasabah_aktif],
+          [],
+          ['Arus Kas', 'Nilai (Rp)'],
+          ['Kas masuk - pembayaran', lap.arus_kas.masuk_pembayaran],
+          ['Kas masuk - lainnya', lap.arus_kas.masuk_lain],
+          ['Kas keluar - pencairan', lap.arus_kas.keluar_pencairan],
+          ['Kas keluar - lainnya', lap.arus_kas.keluar_lain],
+          [
+            'Kas bersih',
+            lap.arus_kas.masuk_pembayaran +
+              lap.arus_kas.masuk_lain -
+              lap.arus_kas.keluar_pencairan -
+              lap.arus_kas.keluar_lain,
+          ],
+        ]),
+      )
 
-    // 1. Ringkasan + arus kas
-    unduhCSV(`${pre}_ringkasan.csv`, [
-      ['Laporan Bulanan SWFinance'],
-      ['Periode', `${periode.nama_bulan} ${periode.tahun}`],
-      ['Rentang', `${periode.dari} s/d ${periode.sampai}`],
-      [],
-      ['Metrik', 'Nilai (Rp)'],
-      ['Modal dipinjamkan (pencairan)', rk.pencairan],
-      ['Pinjaman baru', rk.pinjaman_baru],
-      ['Nasabah baru', rk.nasabah_baru],
-      ['Tagihan jatuh tempo', rk.jatuh_tempo],
-      ['Terkumpul (bruto)', rk.terkumpul],
-      ['Koreksi pembayaran', rk.koreksi],
-      ['Terkumpul bersih', rk.terkumpul_bersih],
-      ['Kolektibilitas (%)', kolektibilitas],
-      ['Laba bunga', rk.laba_bunga],
-      ['Sisa piutang', rk.sisa_piutang],
-      ['Total modal berjalan', rk.total_modal],
-      ['Pinjaman berjalan', rk.pinjaman_berjalan],
-      ['Nasabah aktif (bayar bulan ini)', rk.nasabah_aktif],
-      [],
-      ['Arus Kas', 'Nilai (Rp)'],
-      ['Kas masuk - pembayaran', lap.arus_kas.masuk_pembayaran],
-      ['Kas masuk - lainnya', lap.arus_kas.masuk_lain],
-      ['Kas keluar - pencairan', lap.arus_kas.keluar_pencairan],
-      ['Kas keluar - lainnya', lap.arus_kas.keluar_lain],
-      [
-        'Kas bersih',
-        lap.arus_kas.masuk_pembayaran +
-          lap.arus_kas.masuk_lain -
-          lap.arus_kas.keluar_pencairan -
-          lap.arus_kas.keluar_lain,
-      ],
-    ])
+      // 2. Tren 6 bulan
+      await saveCsv(
+        `${pre}_tren.csv`,
+        toCsv([
+          ['Bulan', 'Pencairan', 'Terkumpul', 'Jatuh Tempo'],
+          ...(lap.tren ?? []).map((t) => [t.label_panjang, t.pencairan, t.terkumpul, t.jatuh_tempo]),
+        ]),
+      )
 
-    // 2. Tren 6 bulan
-    unduhCSV(`${pre}_tren.csv`, [
-      ['Bulan', 'Pencairan', 'Terkumpul', 'Jatuh Tempo'],
-      ...(lap?.tren ?? []).map((t) => [
-        t.label_panjang,
-        t.pencairan,
-        t.terkumpul,
-        t.jatuh_tempo,
-      ]),
-    ])
+      // 3. Top nasabah
+      await saveCsv(
+        `${pre}_top_nasabah.csv`,
+        toCsv([
+          ['Peringkat', 'Nasabah', 'NIK', 'Status Keandalan', 'Pinjaman', 'Sisa Piutang'],
+          ...(lap.top_nasabah ?? []).map((t, i) => [i + 1, t.nama, t.nik, t.status, t.pinjaman, t.sisa]),
+        ]),
+      )
 
-    // 3. Top nasabah
-    unduhCSV(`${pre}_top_nasabah.csv`, [
-      ['Peringkat', 'Nasabah', 'NIK', 'Status Keandalan', 'Pinjaman', 'Sisa Piutang'],
-      ...(lap?.top_nasabah ?? []).map((t, i) => [
-        i + 1,
-        t.nama,
-        t.nik,
-        t.status,
-        t.pinjaman,
-        t.sisa,
-      ]),
-    ])
+      setEksporInfo('3 berkas CSV tersimpan — cek Documents/SWFinance atau menu berbagi.')
+    } catch (e) {
+      setError(`Ekspor CSV gagal: ${errMsg(e)}`)
+    } finally {
+      setEksporBusy(null)
+    }
+  }
+
+  const eksporPDF = async () => {
+    if (!lap || !rk || !periode) return
+    setEksporBusy('pdf')
+    setEksporInfo('')
+    try {
+      const p = `${periode.tahun}-${String(periode.bulan).padStart(2, '0')}`
+      const buf = buatPdf(lap, {
+        kolektibilitas,
+        kasMasuk: (lap.arus_kas.masuk_pembayaran ?? 0) + (lap.arus_kas.masuk_lain ?? 0),
+        kasKeluar: (lap.arus_kas.keluar_pencairan ?? 0) + (lap.arus_kas.keluar_lain ?? 0),
+      })
+      await saveAndShare(`laporan_${p}.pdf`, buf, 'application/pdf')
+      setEksporInfo('PDF tersimpan — cek Documents/SWFinance atau menu berbagi.')
+    } catch (e) {
+      setError(`Ekspor PDF gagal: ${errMsg(e)}`)
+    } finally {
+      setEksporBusy(null)
+    }
   }
 
   if (loading && !lap) return <div className="text-sm text-slate-500">Memuat laporan…</div>
@@ -277,7 +283,7 @@ export default function Laporan() {
             <select
               value={bulan}
               onChange={(e) => setBulan(Number(e.target.value))}
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
+              className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
             >
               {NAMA_BULAN.map((n, i) => (
                 <option key={i} value={i + 1}>
@@ -293,7 +299,7 @@ export default function Laporan() {
             <select
               value={tahun}
               onChange={(e) => setTahun(Number(e.target.value))}
-              className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
+              className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold focus:ring-2 focus:ring-emerald-500 outline-none"
             >
               {Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i).map((y) => (
                 <option key={y} value={y}>
@@ -303,19 +309,27 @@ export default function Laporan() {
             </select>
           </div>
           <button
-            onClick={() => window.print()}
-            className="rounded-xl bg-admin-dark px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.99]"
+            onClick={() => void eksporPDF()}
+            disabled={eksporBusy !== null}
+            className="min-h-11 rounded-xl bg-admin-dark px-4 py-2.5 text-sm font-bold text-white shadow-sm transition hover:bg-slate-800 active:scale-[0.99] disabled:opacity-55"
           >
-            📄 Unduh PDF
+            {eksporBusy === 'pdf' ? 'Membuat PDF…' : '📄 Unduh PDF'}
           </button>
           <button
-            onClick={eksporCSV}
-            className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/30 transition hover:bg-emerald-700 active:scale-[0.99]"
+            onClick={() => void eksporCSV()}
+            disabled={eksporBusy !== null}
+            className="min-h-11 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-emerald-600/30 transition hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-55"
           >
-            📊 Unduh CSV
+            {eksporBusy === 'csv' ? 'Menyiapkan CSV…' : '📊 Unduh CSV'}
           </button>
         </div>
       </div>
+
+      {eksporInfo && (
+        <div className="no-print rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800" role="status">
+          ✓ {eksporInfo}
+        </div>
+      )}
 
       {error && (
         <div className="no-print rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
-import { supabase } from './lib/supabase'
+import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { supabase, isConfigured, isDesktop } from './lib/supabase'
 import { fetchMyProfile } from './lib/api'
 import Layout from './components/Layout.tsx'
 import { ConfirmProvider } from './components/ConfirmDialog.tsx'
 import { ToastProvider } from './components/Toast.tsx'
 import Login from './pages/Login.tsx'
+import Setup from './pages/Setup.tsx'
 import Dashboard from './pages/Dashboard.tsx'
 import Loans from './pages/Loans.tsx'
 import LoanNew from './pages/LoanNew.tsx'
@@ -17,12 +18,23 @@ import Laporan from './pages/Laporan.tsx'
 import Users from './pages/Users.tsx'
 import UserDetail from './pages/UserDetail.tsx'
 
-type View = 'loading' | 'login' | 'denied' | 'admin'
+type View = 'loading' | 'unconfigured' | 'login' | 'denied' | 'admin'
 
 export default function App() {
   const [view, setView] = useState<View>('loading')
+  // counter: dinaikkan setelah Setup menyimpan config, memicu re-evaluasi
+  // modul supabase client lewat reload penuh (cara paling bersih krn client
+  // dibuat sekali di module scope).
+  const [configEpoch, setConfigEpoch] = useState(0)
 
   useEffect(() => {
+    // Konfigurasi belum lengkap: di desktop tampilkan layar Setup;
+    // di web tetap arahkan isi admin/.env (perilaku lama).
+    if (!isConfigured) {
+      setView(isDesktop ? 'unconfigured' : 'login')
+      return
+    }
+
     let mounted = true
 
     const evaluate = async () => {
@@ -56,13 +68,26 @@ export default function App() {
       mounted = false
       subscription.unsubscribe()
     }
-  }, [])
+  }, [configEpoch])
 
   if (view === 'loading') {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-100 text-slate-500">
         Memuat…
       </div>
+    )
+  }
+
+  if (view === 'unconfigured') {
+    return (
+      <Setup
+        onSaved={() => {
+          // Config baru tersimpan di userData — reload supaya supabase client
+          // (module-scope) dibuat ulang dengan nilai baru.
+          setConfigEpoch((n) => n + 1)
+          window.location.reload()
+        }}
+      />
     )
   }
 
@@ -90,7 +115,11 @@ export default function App() {
   return (
     <ToastProvider>
       <ConfirmProvider>
-        <BrowserRouter>
+        {/* HashRouter: wajib utk Electron (file://) — BrowserRouter butuh
+            pathname "/" dan di file:// pathname berbentuk drive-path, sehingga
+            tidak ada route yang match dan konten halaman kosong. Di dev server
+            web, hash ini tidak mengubah apa pun. */}
+        <HashRouter>
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
@@ -106,7 +135,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
-        </BrowserRouter>
+        </HashRouter>
       </ConfirmProvider>
     </ToastProvider>
   )

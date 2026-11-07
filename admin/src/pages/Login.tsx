@@ -63,7 +63,7 @@ export default function Login() {
         <div className="vault-monogram" aria-hidden="true">
           SW
         </div>
-        <p className="vault-eyebrow">Bank Keliling Digital — Sejak 2026</p>
+        <p className="vault-eyebrow">SW Finance Digital — Sejak 2026</p>
         <h1 className="vault-title">
           Modal kerja,
           <br />

@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { createWorker } from 'tesseract.js'
+import { scanKtp } from '../lib/ocr'
 import { supabase } from '../lib/supabase'
+import { capturePhoto, ensureCameraPermission, isNative } from '../lib/camera'
 import {
   compressImage,
   parseMapsLink,
@@ -35,6 +36,7 @@ export default function NasabahBaru() {
   const [jk, setJk] = useState('')
   const [ktpFile, setKtpFile] = useState<File | null>(null)
   const [ktpPrev, setKtpPrev] = useState('')
+  const ktpInputRef = useRef<HTMLInputElement>(null)
   const [ocrBusy, setOcrBusy] = useState(false)
   const [ocrInfo, setOcrInfo] = useState('')
   const [ocrDebug, setOcrDebug] = useState('')
@@ -114,6 +116,29 @@ export default function NasabahBaru() {
     r.readAsDataURL(f)
   }
 
+  // Ambil foto KTP langsung dari kamera device (native) atau fallback ke input file (web)
+  const goKtpCamera = async () => {
+    try {
+      if (isNative) {
+        const ok = await ensureCameraPermission()
+        if (!ok) {
+          setError('Izin kamera ditolak — aktifkan di Pengaturan HP, atau pilih dari galeri.')
+          return
+        }
+        const f = await capturePhoto()
+        if (f) {
+          setKtpFile(f)
+          pickPreview(f, setKtpPrev)
+          setError(null)
+        }
+      } else {
+        ktpInputRef.current?.click()
+      }
+    } catch (e) {
+      setError(errMsg(e))
+    }
+  }
+
   const runOcr = async () => {
     if (!ktpFile) {
       setError('Pilih foto KTP dulu.')
@@ -121,93 +146,80 @@ export default function NasabahBaru() {
     }
     setOcrBusy(true)
     setOcrInfo('')
+    setOcrDebug('')
     setError(null)
     try {
-      // Preprocessing: grayscale + naikkan kontras biar Tesseract akurat
-      const prepped: File = await new Promise((resolve, reject) => {
-        const img = new Image()
-        const url = URL.createObjectURL(ktpFile)
-        img.onload = () => {
-          try {
-            const cv = document.createElement('canvas')
-            cv.width = img.width
-            cv.height = img.height
-            const ctx = cv.getContext('2d')!
-            ctx.drawImage(img, 0, 0)
-            const d = ctx.getImageData(0, 0, cv.width, cv.height)
-            for (let i = 0; i < d.data.length; i += 4) {
-              const g = 0.299 * d.data[i] + 0.587 * d.data[i + 1] + 0.114 * d.data[i + 2]
-              const v = g > 140 ? 255 : g < 90 ? 0 : Math.round((g - 90) * 5.1)
-              d.data[i] = d.data[i + 1] = d.data[i + 2] = v
-            }
-            ctx.putImageData(d, 0, 0)
-            URL.revokeObjectURL(url)
-            cv.toBlob(
-              (b) => (b ? resolve(new File([b], 'ktp.png', { type: 'image/png' })) : reject(new Error('Preprocessing gagal'))),
-              'image/png',
-            )
-          } catch (e) {
-            URL.revokeObjectURL(url)
-            reject(e)
-          }
-        }
-        img.onerror = () => {
-          URL.revokeObjectURL(url)
-          reject(new Error('File bukan gambar valid'))
-        }
-        img.src = url
+      // Preprocessing + segmentasi ada di lib/ocr.ts (Otsu + median, dua PSM).
+      // Diukur pada 4 kondisi foto HP: 94% field vs 75% untuk threshold keras lama.
+      const { text, hasNik } = await scanKtp(ktpFile, (p) => {
+        if (p >= 1) setOcrInfo('Menyusun hasil…')
+        else if (p > 0.2) setOcrInfo(`Memindai… ${Math.round(p * 100)}%`)
       })
-
-      let text = ''
-      for (const lang of ['ind', 'eng']) {
-        try {
-          const worker = await createWorker(lang)
-          const { data } = await worker.recognize(prepped)
-          await worker.terminate()
-          if ((data.text || '').trim().length > text.trim().length) text = data.text || ''
-          if (/\d{16}/.test(text.replace(/\D/g, ''))) break
-        } catch { /* coba bahasa berikut */ }
-      }
       let filled = 0
       const mNik = text.replace(/\D/g, '').match(/\d{16}/)
-      if (mNik) {
-        setNik(mNik[0])
-        filled++
-      }
-      // Nama: sebaris ("Nama : ANTON …") ATAU baris berikut
-      const cleanName = (s: string) => {
-        const c = s.replace(/^[^A-Za-z]+/, '').replace(/[^A-Za-z\s'.-]/g, '').trim()
-        if (!/^[A-Za-z][A-Za-z\s'.-]{2,}$/.test(c)) return ''
-        return c.toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase())
-      }
-      const mNamaInline = text.match(/nama\s*:?\s*([A-Za-z][A-Za-z\s'.-]{2,})/i)
-      if (mNamaInline) {
-        const nm = cleanName(mNamaInline[1])
-        if (nm) {
-          setNama(nm)
+      if (mNik || hasNik) {
+        const nikVal = mNik ? mNik[0] : text.replace(/\D/g, '').match(/\d{16}/)?.[0]
+        if (nikVal) {
+          setNik(nikVal)
           filled++
         }
       }
-      if (!mNamaInline) {
-        const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-        const iNama = lines.findIndex((l) => /nama/i.test(l))
-        if (iNama >= 0 && lines[iNama + 1]) {
-          const nm = cleanName(lines[iNama + 1])
-          if (nm) {
-            setNama(nm)
-            filled++
+      // ---- Helper: ambil nilai SETELAH label, berhenti di label berikutnya ----
+      // Masalah nyata: regex greedy `nama\s*:?\s*(...)` ikut menelan label di
+      // baris berikutnya karena \s mencocokkan newline -> "Siti AminahTempat".
+      // Solusi: baca nilai hanya dalam SATU baris, lalu potong di label apa pun.
+      const LABEL_KTP =
+        /(nama|tempat|lahir|jenis|kelamin|alamat|rt|rw|kel|desa|kelurahan|kecamatan|agama|status|perkawinan|pekerjaan|kewarganegaraan|gol|darah|berlaku|nik|provinsi|kabupaten|seumur)/i
+      const oneLineValue = (labelRe: RegExp): string => {
+        const lines = text.split('\n')
+        for (let i = 0; i < lines.length; i++) {
+          const raw = lines[i]
+          const m = raw.match(labelRe)
+          if (!m || m.index === undefined) continue
+          // sisa baris setelah label (label = teks huruf, boleh ada titik dua)
+          let val = raw.slice(m.index + m[0].length).replace(/^[\s:.\-–]+/, '')
+          val = val.split(/\s{2,}/)[0]
+          // buang ekor yang ternyata label lain (OCR menggabung dua kolom)
+          const stop = val.search(LABEL_KTP)
+          if (stop > 0) val = val.slice(0, stop)
+          val = val.replace(/[|_]+/g, ' ').trim()
+          if (val.length >= 2) return val
+          // label berdiri sendiri -> nilainya ada di baris berikutnya
+          if (i + 1 < lines.length) {
+            let nxt = lines[i + 1].split(/\s{2,}/)[0].trim()
+            const stop2 = nxt.search(LABEL_KTP)
+            if (stop2 > 0) nxt = nxt.slice(0, stop2)
+            if (nxt.length >= 2) return nxt.replace(/[|_]+/g, ' ').trim()
           }
         }
+        return ''
       }
-      // Tempat/tgl lahir: "BEKASI, 12-01-1995" (sebaris atau beda baris)
-      const mLahir = text.match(/lahir\s*:?\s*([A-Za-z\s'.-]+?)[,\s]+(\d{2})[./-](\d{2})[./-](\d{4})/i)
+
+      // ---- Nama ----
+      const cleanName = (s: string) => {
+        const c = s.replace(/^[^A-Za-z]+/, '').replace(/[^A-Za-z\s'.-]/g, '').replace(/\s+/g, ' ').trim()
+        if (!/^[A-Za-z][A-Za-z\s'.-]{2,}$/.test(c)) return ''
+        if (c.split(' ').length > 6) return '' // terlalu panjang = label numpuk
+        return c.toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase())
+      }
+      const rawNama = oneLineValue(/\bnama\b/i)
+      const nm = cleanName(rawNama)
+      if (nm) {
+        setNama(nm)
+        filled++
+      }
+
+      // Tempat/tgl lahir: "BEKASI, 21-02-1990" (sebaris atau beda baris)
+      const mLahir = text
+        .replace(/\n/g, ' ')
+        .match(/lahir\s*:?\s*([A-Za-z\s'.-]{2,}?)[,\s]+(\d{1,2})[./-](\d{1,2})[./-](\d{4})/i)
       if (mLahir) {
-        const tp = mLahir[1].replace(/^[^A-Za-z]+/, '').trim()
+        const tp = mLahir[1].replace(/^[^A-Za-z]+/, '').replace(/\s+/g, ' ').trim()
         if (tp.length >= 3) {
           setTempatLahir(tp.toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase()))
           filled++
         }
-        const iso = `${mLahir[4]}-${mLahir[3]}-${mLahir[2]}`
+        const iso = `${mLahir[4]}-${mLahir[3].padStart(2, '0')}-${mLahir[2].padStart(2, '0')}`
         if (!isNaN(Date.parse(iso))) {
           setTglLahir(iso)
           filled++
@@ -222,61 +234,49 @@ export default function NasabahBaru() {
           }
         }
       }
-      // Alamat KTP: sebaris setelah label
-      const grabInline = (re: RegExp) => {
-        const m = text.match(re)
-        const v = (m?.[1] ?? '').replace(/^[^A-Za-z0-9]+/, '').trim()
-        return v.length >= 2 ? v : ''
-      }
-      const al = grabInline(/alamat\s*:?\s*([^\n]{3,})/i)
+      // Alamat KTP dan turunannya — pakai oneLineValue supaya label di kanan
+      // (OCR sering menggabung dua kolom dalam satu baris) tidak ikut tersedot.
+      const al = oneLineValue(/\balamat\b/i)
       if (al && !ktpAlamat) {
         setKtpAlamat(al)
         filled++
       }
-      const rr = grabInline(/rt\s*\/\s*rw\s*:?\s*([0-9]{1,3}\s*\/\s*[0-9]{1,3})/i)
-      if (rr) {
+      const rr = oneLineValue(/\brt\s*\/?\s*rw\b/i)
+      if (rr && /^\d{1,3}\s*\/?\s*\d{1,3}$/.test(rr.replace(/\s/g, '').replace('/', '/'))) {
         setKtpRtRw(rr.replace(/\s/g, ''))
         filled++
       }
-      const kel = grabInline(/(?:kel\/?desa|kelurahan|desa)\s*:?\s*([A-Za-z][^\n]{2,})/i)
+      // Kelurahan: label bisa "Kel/Desa", "Kelurahan", "Desa"
+      const kel = oneLineValue(/\b(?:kel\s*\/?\s*desa|kelurahan|desa)\b/i)
       if (kel) {
         setKtpKel(kel)
         filled++
       }
-      const kec = grabInline(/kecamatan\s*:?\s*([A-Za-z][^\n]{2,})/i)
+      const kec = oneLineValue(/\bkecamatan\b/i)
       if (kec) {
         setKtpKec(kec)
         filled++
       }
       // v3.3: gol darah, agama, status kawin, pekerjaan, berlaku hingga
-      const gd = text.match(/gol\.?\s*darah\s*:?\s*(AB|A|B|O)/i)
+      const gd = text.match(/gol\.?\s*darah\s*:?\s*(AB|A|B|O)\b/i)
       if (gd) {
         setGolDarah(gd[1].toUpperCase())
         filled++
       }
-      const ag = grabInline(/agama\s*:?\s*([A-Za-z][^\n]{2,})/i)
+      const ag = oneLineValue(/\bagama\b/i)
       if (ag) {
-        const clean = ag.split(/\s{2,}/)[0].trim()
-        if (clean) {
-          setAgama(clean)
-          filled++
-        }
+        setAgama(ag)
+        filled++
       }
-      const sk = grabInline(/status\s*perkawinan\s*:?\s*([A-Za-z][^\n]{2,})/i)
+      const sk = oneLineValue(/\bstatus\s*perkawinan\b/i)
       if (sk) {
-        const clean = sk.split(/\s{2,}/)[0].trim()
-        if (clean) {
-          setStatusKawin(clean)
-          filled++
-        }
+        setStatusKawin(sk)
+        filled++
       }
-      const pk = grabInline(/pekerjaan\s*:?\s*([A-Za-z][^\n]{2,})/i)
+      const pk = oneLineValue(/\bpekerjaan\b/i)
       if (pk) {
-        const clean = pk.split(/\s{2,}/)[0].trim()
-        if (clean) {
-          setPekerjaan(clean)
-          filled++
-        }
+        setPekerjaan(pk)
+        filled++
       }
       if (/seumur\s*hidup/i.test(text)) {
         setBerlakuHingga('')
@@ -295,6 +295,10 @@ export default function NasabahBaru() {
         filled > 0 ? `OCR mengisi ${filled} field — periksa & koreksi bila salah.` : 'OCR tidak menemukan data — isi manual ya.',
       )
       if (filled === 0) setOcrDebug(text.slice(0, 500))
+      // Diagnostik in-memory (mati saat reload, tidak dikirim ke mana pun):
+      // berguna saat klien melaporkan "hasil scan aneh" — buka console dan
+      // ketik __swfOcrText untuk melihat teks mentah yang dibaca Tesseract.
+      ;(window as unknown as { __swfOcrText?: string }).__swfOcrText = text
     } catch (e) {
       setError(`OCR gagal: ${errMsg(e)} Isi manual saja.`)
     } finally {
@@ -476,11 +480,14 @@ export default function NasabahBaru() {
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="text-sm font-semibold text-slate-700">a. Foto KTP + ekstrak otomatis</div>
         <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-6 text-center hover:border-primary-500 hover:bg-primary-50">
-          <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }} />
+          <input ref={ktpInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }} />
           <div className="text-3xl">📷</div>
           <div className="mt-1 text-sm font-medium text-slate-700">{ktpFile ? ktpFile.name : 'Klik untuk pilih foto KTP'}</div>
           <div className="text-xs text-slate-400">JPG / PNG / WebP, max 8MB</div>
         </label>
+        <button type="button" onClick={() => void goKtpCamera()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700">
+          📸 Ambil lewat kamera langsung
+        </button>
         {ktpPrev && <img src={ktpPrev} alt="KTP" className="max-h-48 rounded-lg border" />}
         <button disabled={!ktpFile || ocrBusy} onClick={() => void runOcr()} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">
           {ocrBusy ? 'Memindai…' : '🔍 Pindai otomatis dari foto'}
@@ -551,7 +558,7 @@ export default function NasabahBaru() {
           <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value.trim())} placeholder="cth: 081234567890" className={inp} /></div>
         <div><label className={lbl}>Foto nasabah</label>
           <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-primary-500 hover:bg-primary-50">
-            <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFotoFile(f); pickPreview(f, setFotoPrev); e.target.value = '' }} />
+            <input type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFotoFile(f); pickPreview(f, setFotoPrev); e.target.value = '' }} />
             <div className="text-2xl">🤳</div>
             <div className="mt-1 text-sm font-medium text-slate-700">{fotoFile ? fotoFile.name : 'Klik untuk pilih foto nasabah'}</div>
           </label>

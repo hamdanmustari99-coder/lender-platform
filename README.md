@@ -2,11 +2,15 @@
 
 Platform pinjaman mikro dengan penagihan door-to-door: **admin web (React+TS+Vite)** + **Supabase** (Postgres + Auth + Storage + Realtime) sebagai backend.
 
-> **Dokumen acuan:** `PRD.md` (root) — v5.0, 5 Nov 2026.
+> **Dokumen acuan:** `PRD.md` (root) — v5.3, 8 Nov 2026.
 
 ```
 lender-platform/
 ├── admin/      → React+TS+Vite: dashboard, pinjaman, nasabah (kartu), arus kas, setoran, laporan
+│   ├── android/     → proyek native Capacitor → APK untuk HP klien (appId com.swfinance.admin)
+│   └── public/tesseract/ → aset OCR offline (worker, core wasm, traineddata id+en)
+├── desktop/    → cangkang Electron: membungkus web admin yang sama jadi aplikasi laptop
+├── mobile/     → arsip Flutter lama (sudah tidak dipakai; penggantinya admin/android)
 └── supabase/
     ├── schema.sql                 → skema DB + RLS + RPC (jalankan sekali di SQL Editor)
     ├── migrations/                → migrasi bertahap (M14–M26); jalankan via `supabase db push`
@@ -15,7 +19,17 @@ lender-platform/
 
 ## Ringkasan produk
 
-**Satu peran pengguna: admin/owner.** Aplikasi hanya dipakai admin/owner dari web — tidak ada mobile app dan tidak ada akun petugas (M21). `role='nasabah'` tetap ada di DB semata sebagai penanda **pemilik data pinjaman**, bukan sebagai pengguna yang login.
+**Satu peran pengguna: admin/owner.** Aplikasi dipakai admin/owner — lewat browser, aplikasi desktop (Electron), atau APK di HP. Tidak ada akun petugas (M21). `role='nasabah'` tetap ada di DB semata sebagai penanda **pemilik data pinjaman**, bukan sebagai pengguna yang login.
+
+Ketiganya menjalankan **satu codebase web yang sama**:
+
+| Target | Cara pakai | Build |
+|---|---|---|
+| Web | `npm run dev` / `npm run preview` | — |
+| Desktop (laptop klien) | file `.exe` hasil `desktop/` | `cd desktop && npm run dist` |
+| APK (HP klien) | instal `SWFinance-Capacitor-release.apk` | `cd admin && npm run build && npx cap sync android && cd android && ./gradlew.bat assembleRelease` |
+
+APK butuh **JDK 21** (Capacitor/AGP target Java 21); Gradle 8.14 gagal di JBR 25. Aset OCR dibundel di dalam APK sehingga **memindai KTP tetap jalan tanpa internet**.
 
 Pembayaran = **tunai di lapangan** (tanpa payment gateway — sesuai realita bank keliling), dicatat admin saat kunjungan.
 
