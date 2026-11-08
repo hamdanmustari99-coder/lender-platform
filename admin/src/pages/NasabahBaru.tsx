@@ -2,7 +2,7 @@ import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { scanKtp } from '../lib/ocr'
 import { supabase } from '../lib/supabase'
-import { capturePhoto, ensureCameraPermission, isNative } from '../lib/camera'
+import { pickPhoto, ensureCameraPermission, ensurePhotosPermission, isNative } from '../lib/camera'
 import {
   compressImage,
   parseMapsLink,
@@ -37,6 +37,7 @@ export default function NasabahBaru() {
   const [ktpFile, setKtpFile] = useState<File | null>(null)
   const [ktpPrev, setKtpPrev] = useState('')
   const ktpInputRef = useRef<HTMLInputElement>(null)
+  const ktpGalleryRef = useRef<HTMLInputElement>(null)
   const [ocrBusy, setOcrBusy] = useState(false)
   const [ocrInfo, setOcrInfo] = useState('')
   const [ocrDebug, setOcrDebug] = useState('')
@@ -116,7 +117,7 @@ export default function NasabahBaru() {
     r.readAsDataURL(f)
   }
 
-  // Ambil foto KTP langsung dari kamera device (native) atau fallback ke input file (web)
+  // Ambil foto KTP dari kamera device (native) atau input file capture (web)
   const goKtpCamera = async () => {
     try {
       if (isNative) {
@@ -125,7 +126,7 @@ export default function NasabahBaru() {
           setError('Izin kamera ditolak — aktifkan di Pengaturan HP, atau pilih dari galeri.')
           return
         }
-        const f = await capturePhoto()
+        const f = await pickPhoto('camera')
         if (f) {
           setKtpFile(f)
           pickPreview(f, setKtpPrev)
@@ -133,6 +134,31 @@ export default function NasabahBaru() {
         }
       } else {
         ktpInputRef.current?.click()
+      }
+    } catch (e) {
+      setError(errMsg(e))
+    }
+  }
+
+  // Pilih foto KTP dari galeri. Di native pakai plugin (source Photos) supaya
+  // user langsung masuk ke galeri tanpa dialog pilihan; di web pakai input
+  // file TANPA capture, yang otomatis membuka file picker/galeri.
+  const goKtpGallery = async () => {
+    try {
+      if (isNative) {
+        const ok = await ensurePhotosPermission()
+        if (!ok) {
+          setError('Izin galeri ditolak — aktifkan di Pengaturan HP.')
+          return
+        }
+        const f = await pickPhoto('gallery')
+        if (f) {
+          setKtpFile(f)
+          pickPreview(f, setKtpPrev)
+          setError(null)
+        }
+      } else {
+        ktpGalleryRef.current?.click()
       }
     } catch (e) {
       setError(errMsg(e))
@@ -149,51 +175,112 @@ export default function NasabahBaru() {
     setOcrDebug('')
     setError(null)
     try {
-      // Preprocessing + segmentasi ada di lib/ocr.ts (Otsu + median, dua PSM).
-      // Diukur pada 4 kondisi foto HP: 94% field vs 75% untuk threshold keras lama.
-      const { text, hasNik } = await scanKtp(ktpFile, (p) => {
-        if (p >= 1) setOcrInfo('Menyusun hasil…')
-        else if (p > 0.2) setOcrInfo(`Memindai… ${Math.round(p * 100)}%`)
+      // Pipeline ada di lib/ocr.ts: deteksi kartu via blueness -> crop ->
+      // PaddleOCR (PP-OCRv6) satu pass. Model mendeteksi baris dulu lalu
+      // mengenali per baris, jadi NIK dibaca utuh — bukan ditebak per digit.
+      const { text, nik: nikFound, cardDetected } = await scanKtp(ktpFile, (p) => {
+        setOcrInfo(`${p.label}${p.value < 1 ? ` ${Math.round(p.value * 100)}%` : ''}`)
       })
       let filled = 0
-      const mNik = text.replace(/\D/g, '').match(/\d{16}/)
-      if (mNik || hasNik) {
-        const nikVal = mNik ? mNik[0] : text.replace(/\D/g, '').match(/\d{16}/)?.[0]
-        if (nikVal) {
-          setNik(nikVal)
-          filled++
-        }
+      if (nikFound) {
+        setNik(nikFound)
+        filled++
       }
       // ---- Helper: ambil nilai SETELAH label, berhenti di label berikutnya ----
       // Masalah nyata: regex greedy `nama\s*:?\s*(...)` ikut menelan label di
       // baris berikutnya karena \s mencocokkan newline -> "Siti AminahTempat".
-      // Solusi: baca nilai hanya dalam SATU baris, lalu potong di label apa pun.
-      const LABEL_KTP =
-        /(nama|tempat|lahir|jenis|kelamin|alamat|rt|rw|kel|desa|kelurahan|kecamatan|agama|status|perkawinan|pekerjaan|kewarganegaraan|gol|darah|berlaku|nik|provinsi|kabupaten|seumur)/i
-      const oneLineValue = (labelRe: RegExp): string => {
+      // Solusi: baca nilai hanya dalam SATU baris, lalu bersihkan token sampah.
+      //
+      // OCR sering salah baca LABEL-nya sendiri, bukan nilainya:
+      //   "Kecamatan" -> "Otamalan"/"amalan"/"Recamatan"
+      //   "Kel/Desa"  -> "Kelbesa"/"KelDasa"
+      //   "Pekerjaan" -> "Kerajaan"/"kerjaan"
+      // Jadi pencocokan label dibuat toleran (potongan kata kunci), dan nilai
+      // diambil dari sisa baris yang sama.
+      const LABEL_ALIAS: [RegExp, string][] = [
+        [/\b(?:k[ce]c?[ae]m[ae]t[ae]n|kccamatan|otamalan|amalan|recamatan)\b/i, 'kec'],
+        [/\b(?:kel\s*\/?\s*desa|kelurahan|kelbesa|keldasa|kel\s*desa)\b/i, 'kel'],
+        [/\b(?:pekerjaan|kerajaan|kerjaan|pekerjaan)\b/i, 'kerja'],
+        [/\b(?:agama)\b/i, 'agama'],
+        [/\b(?:status\s*perkawinan|perkawinan)\b/i, 'kawin'],
+        [/\b(?:kewarga\w*|kewargaregaraan)\b/i, 'kwn'],
+        [/\b(?:alamat)\b/i, 'alamat'],
+        [/\b(?:rt\s*\/?\s*rw|rtrw)\b/i, 'rtrw'],
+      ]
+
+      /**
+       * Bersihkan nilai dari sampah OCR.
+       * Kolom kanan KTP sudah dipotong sebelum OCR, tapi sisa noise tetap ada:
+       *   "Hamdan Mustari Kn Ek Fo"  -> "Hamdan Mustari"
+       *   "SETIAMEKAR- eee ieee"     -> "SETIAMEKAR"
+       * Aturannya: buang token non-alfabet, token 1 huruf, dan kata tanpa
+       * vokal (derau khas "Kn", "Bea", "eee") — nama/alamat Indonesia punya vokal.
+       *
+       * Kasus lapangan yang WAJIB ditangani: label terduplikasi. OCR sering
+       * membaca labelnya dua kali dalam satu baris, jadi sisa setelah label
+       * pertama masih berisi label lagi:
+       *   "Pekerjaan Pekerjaan PELAJAR/MAHASISWA" -> "Pekerjaan PELAJAR/..."
+       * Kata label yang muncul di TENGAH nilai selalu sampah — tidak ada
+       * pekerjaan/agama bernama "Pekerjaan". Jadi dibuang eksplisit.
+       */
+      const LABEL_WORDS = /^(?:nama|nik|tempat|lahir|jenis|kelamin|alamat|rt|rw|kel|desa|kelurahan|kecamatan|agama|status|perkawinan|pekerjaan|kewarganegaraan|berlaku|hingga|gol|darah|provinsi|kabupaten|kota)$/i
+      const cleanValue = (s: string): string => {
+        const VOWEL = /[aeiouAEIOU]/
+        return s
+          .replace(/[^A-Za-z\s'./-]/g, ' ')
+          .split(/\s+/)
+          .filter((t) => t.length >= 2 && t.length <= 22 && VOWEL.test(t) && !LABEL_WORDS.test(t))
+          .join(' ')
+          .replace(/\s{2,}/g, ' ')
+          .trim()
+      }
+
+      /**
+       * Snap ke kosakata tertutup KTP.
+       * "BELUM KA BEL KAWIN" bukan nilai sah — status perkawinan hanya punya
+       * 4 nilai di KTP. Memaksa cocok ke daftar ini membuang fragmen noise
+       * ("KA", "BEL") yang lolos filter vokal, tanpa mengarang nilai baru.
+       * Dibalik ke bentuk baku supaya konsisten dengan pilihan di form.
+       */
+      const snap = (s: string, table: [RegExp, string][]): string => {
+        const u = s.toUpperCase()
+        for (const [re, val] of table) if (re.test(u)) return val
+        return s
+      }
+      const STATUS_KAWIN: [RegExp, string][] = [
+        [/BELUM\s*KAWIN|\bBELUM\b/, 'Belum Kawin'],
+        [/CERAI\s*HIDUP/, 'Cerai Hidup'],
+        [/CERAI\s*MATI|CERAI\s*MAT[Il]/, 'Cerai Mati'],
+        [/\bKAWIN\b/, 'Kawin'],
+      ]
+      const AGAMA: [RegExp, string][] = [
+        [/ISLAM/, 'Islam'],
+        [/KRISTEN|PROTESTAN/, 'Kristen'],
+        [/KATOLIK|KATHOLIK/, 'Katolik'],
+        [/HINDU/, 'Hindu'],
+        [/BUDHA|BUDDHA/, 'Budha'],
+        [/KONGHUCU|KONG\s*HUCU/, 'Konghucu'],
+      ]
+
+      /** Ambil nilai setelah label pada baris yang sama (atau baris berikutnya). */
+      const valueAfter = (labelRe: RegExp): string => {
         const lines = text.split('\n')
         for (let i = 0; i < lines.length; i++) {
-          const raw = lines[i]
-          const m = raw.match(labelRe)
+          const m = lines[i].match(labelRe)
           if (!m || m.index === undefined) continue
-          // sisa baris setelah label (label = teks huruf, boleh ada titik dua)
-          let val = raw.slice(m.index + m[0].length).replace(/^[\s:.\-–]+/, '')
-          val = val.split(/\s{2,}/)[0]
-          // buang ekor yang ternyata label lain (OCR menggabung dua kolom)
-          const stop = val.search(LABEL_KTP)
-          if (stop > 0) val = val.slice(0, stop)
-          val = val.replace(/[|_]+/g, ' ').trim()
-          if (val.length >= 2) return val
-          // label berdiri sendiri -> nilainya ada di baris berikutnya
+          // teks setelah label; buang pemisah seperti ":", "=", "-"
+          const rest = lines[i].slice(m.index + m[0].length).replace(/^[\s:=\-–]+/, '')
+          const cleaned = cleanValue(rest)
+          if (cleaned.length >= 2) return cleaned
           if (i + 1 < lines.length) {
-            let nxt = lines[i + 1].split(/\s{2,}/)[0].trim()
-            const stop2 = nxt.search(LABEL_KTP)
-            if (stop2 > 0) nxt = nxt.slice(0, stop2)
-            if (nxt.length >= 2) return nxt.replace(/[|_]+/g, ' ').trim()
+            const c2 = cleanValue(lines[i + 1])
+            if (c2.length >= 2) return c2
           }
         }
         return ''
       }
+      // Alias: fungsi lama tetap dipakai untuk alamat & turunannya.
+      const oneLineValue = valueAfter
 
       // ---- Nama ----
       const cleanName = (s: string) => {
@@ -202,7 +289,12 @@ export default function NasabahBaru() {
         if (c.split(' ').length > 6) return '' // terlalu panjang = label numpuk
         return c.toLowerCase().replace(/\b\w/g, (x) => x.toUpperCase())
       }
-      const rawNama = oneLineValue(/\bnama\b/i)
+      // Label "Nama" sering terbaca salah satu huruf: N->l ("lama"), N->H ("Hama"),
+      // atau tergabung dengan noise ("Sama"). Ini penyebab nyata nama tidak terisi
+      // di APK walau KTP jelas:  "= lama———___——_ = HAMDAN MUSTAR|"
+      // Alias dibuat khusus kata 4 huruf yang mirip, bukan pola longgar, supaya
+      // tidak menangkap "Alamat"/"Kecamatan" yang juga mengandung "ama".
+      const rawNama = oneLineValue(/\b(?:nama|lama|hama|nnama|nam|ama)\b/i)
       const nm = cleanName(rawNama)
       if (nm) {
         setNama(nm)
@@ -246,13 +338,18 @@ export default function NasabahBaru() {
         setKtpRtRw(rr.replace(/\s/g, ''))
         filled++
       }
-      // Kelurahan: label bisa "Kel/Desa", "Kelurahan", "Desa"
-      const kel = oneLineValue(/\b(?:kel\s*\/?\s*desa|kelurahan|desa)\b/i)
+      // Kelurahan & Kecamatan: pakai alias toleran karena OCR sering salah
+      // membaca labelnya ("Kecamatan" -> "Otamalan", "Kel/Desa" -> "Kelbesa").
+      const byLabel = (code: string): string => {
+        const alias = LABEL_ALIAS.find(([, c]) => c === code)
+        return alias ? valueAfter(alias[0]) : ''
+      }
+      const kel = byLabel('kel')
       if (kel) {
         setKtpKel(kel)
         filled++
       }
-      const kec = oneLineValue(/\bkecamatan\b/i)
+      const kec = byLabel('kec')
       if (kec) {
         setKtpKec(kec)
         filled++
@@ -263,19 +360,24 @@ export default function NasabahBaru() {
         setGolDarah(gd[1].toUpperCase())
         filled++
       }
-      const ag = oneLineValue(/\bagama\b/i)
+      const ag = byLabel('agama')
       if (ag) {
-        setAgama(ag)
+        setAgama(snap(ag, AGAMA))
         filled++
       }
-      const sk = oneLineValue(/\bstatus\s*perkawinan\b/i)
+      const sk = byLabel('kawin')
       if (sk) {
-        setStatusKawin(sk)
+        setStatusKawin(snap(sk, STATUS_KAWIN))
         filled++
       }
-      const pk = oneLineValue(/\bpekerjaan\b/i)
+      const pk = byLabel('kerja')
       if (pk) {
         setPekerjaan(pk)
+        filled++
+      }
+      const kwn = byLabel('kwn')
+      if (kwn) {
+        setKewarganegaraan(kwn.toUpperCase() === 'WNI' ? 'WNI' : kwn)
         filled++
       }
       if (/seumur\s*hidup/i.test(text)) {
@@ -292,7 +394,9 @@ export default function NasabahBaru() {
         }
       }
       setOcrInfo(
-        filled > 0 ? `OCR mengisi ${filled} field — periksa & koreksi bila salah.` : 'OCR tidak menemukan data — isi manual ya.',
+        filled > 0
+          ? `OCR mengisi ${filled} field${cardDetected ? '' : ' (kartu tidak terdeteksi — foto ulang lebih dekat)'} — periksa & koreksi bila salah.`
+          : 'OCR tidak menemukan data — isi manual ya.',
       )
       if (filled === 0) setOcrDebug(text.slice(0, 500))
       // Diagnostik in-memory (mati saat reload, tidak dikirim ke mana pun):
@@ -479,17 +583,52 @@ export default function NasabahBaru() {
       {/* A. FOTO KTP + OCR */}
       <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="text-sm font-semibold text-slate-700">a. Foto KTP + ekstrak otomatis</div>
-        <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-6 text-center hover:border-primary-500 hover:bg-primary-50">
-          <input ref={ktpInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }} />
-          <div className="text-3xl">📷</div>
-          <div className="mt-1 text-sm font-medium text-slate-700">{ktpFile ? ktpFile.name : 'Klik untuk pilih foto KTP'}</div>
+
+        {/* Dua sumber foto, eksplisit. Input file dipakai dua-duanya (native
+            lewat plugin, web lewat picker) — tanpa atribut capture supaya
+            tombol galeri benar-benar membuka galeri, bukan kamera. */}
+        <input
+          ref={ktpGalleryRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }}
+        />
+        <input
+          ref={ktpInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }}
+        />
+
+        <div className="grid gap-2 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => void goKtpCamera()}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
+          >
+            📸 Ambil pakai kamera
+          </button>
+          <button
+            type="button"
+            onClick={() => void goKtpGallery()}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            🖼️ Pilih dari galeri
+          </button>
+        </div>
+
+        <div className="rounded-xl border border-dashed border-slate-300 px-4 py-3 text-center">
+          <div className="text-sm font-medium text-slate-700">
+            {ktpFile ? ktpFile.name : 'Belum ada foto KTP terpilih'}
+          </div>
           <div className="text-xs text-slate-400">JPG / PNG / WebP, max 8MB</div>
-        </label>
-        <button type="button" onClick={() => void goKtpCamera()} className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700">
-          📸 Ambil lewat kamera langsung
-        </button>
+        </div>
+
         {ktpPrev && <img src={ktpPrev} alt="KTP" className="max-h-48 rounded-lg border" />}
-        <button disabled={!ktpFile || ocrBusy} onClick={() => void runOcr()} className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50">
+        <button disabled={!ktpFile || ocrBusy} onClick={() => void runOcr()} className="min-h-11 w-full rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-700 disabled:opacity-50 sm:w-auto">
           {ocrBusy ? 'Memindai…' : '🔍 Pindai otomatis dari foto'}
         </button>
         {ocrInfo && <div className="text-xs text-slate-500">{ocrInfo}</div>}
@@ -501,7 +640,9 @@ export default function NasabahBaru() {
         )}
         <div className="grid gap-3 sm:grid-cols-2">
           <div><label className={lbl}>Nama sesuai KTP *</label><input value={nama} onChange={(e) => setNama(e.target.value)} placeholder="cth: Siti Aminah" className={inp} /></div>
-          <div><label className={lbl}>NIK (16 digit) *</label><input inputMode="numeric" maxLength={16} value={nik} onChange={(e) => setNik(e.target.value.replace(/[^0-9]/g, ''))} placeholder="3201010101900005" className={`${inp} font-mono`} /></div>
+          <div><label className={lbl}>NIK (16 digit) *</label><input inputMode="numeric" maxLength={16} value={nik} onChange={(e) => setNik(e.target.value.replace(/[^0-9]/g, ''))} placeholder="3201010101900005" className={`${inp} font-mono`} aria-describedby="nik-hint" />
+            {ocrInfo && !nik && <p id="nik-hint" className="mt-1 text-[11px] font-medium text-amber-700">NIK tidak terbaca otomatis — ketik manual dari KTP.</p>}
+          </div>
           <div><label className={lbl}>Tempat lahir</label><input value={tempatLahir} onChange={(e) => setTempatLahir(e.target.value)} placeholder="cth: Bekasi" className={inp} /></div>
           <div><label className={lbl}>Tanggal lahir (dd-mm-yyyy)</label><input type="date" value={tglLahir} onChange={(e) => setTglLahir(e.target.value)} className={inp} /></div>
           <div><label className={lbl}>Jenis kelamin</label>

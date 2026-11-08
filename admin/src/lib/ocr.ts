@@ -1,152 +1,90 @@
-// Pipeline OCR KTP — tesseract.js dengan preprocessing yang disetel dari hasil bench.
+// Pipeline OCR KTP — PaddleOCR (PP-OCRv6) via onnxruntime-web.
 //
-// Kenapa bukan sekadar createWorker() + foto apa adanya:
-//   * Foto HP datang 3000-4000px, miring, blur, dan cahayanya tidak rata.
-//     Threshold keras (g > 140 putih, g < 90 hitam) membuang semua abu-abu
-//     di antaranya — di foto yang agak gelap, teks KTP ikut hilang.
-//     Uji 4 kondisi foto (terang / normal / redup-miring / gelap):
-//       threshold keras  36/48 field  (75%)  — gagal total di foto gelap (2/6)
-//       Otsu adaptif     45/48 field  (94%)  — 6/6 di semua kondisi
-//   * Resolusi dinormalisasi ke ~1800px supaya tinggi huruf konsisten; foto
-//     4000px membuat Tesseract menebak resolusi dan memperlambat 3-4x.
-//   * PSM dijalankan dua kali (SINGLE_BLOCK lalu AUTO) dan hasil terbaik
-//     dipilih dari skor field — SINGLE_BLOCK menang di foto redup, AUTO
-//     menang di foto bersih.
+// KENAPA PADDLE, BUKAN TESSERACT (keputusan dari pengukuran, bukan selera):
 //
-// Aset (worker, core wasm, traineddata) dilayani dari /tesseract/ milik app
-// sendiri, bukan CDN jsdelivr: APK harus bisa scan KTP tanpa internet, dan
-// WebView tidak selalu boleh memuat skrip lintas-origin.
-import { createWorker, PSM } from 'tesseract.js'
-import type { Worker } from 'tesseract.js'
+//   Pada foto KTP lapangan yang sama (ground truth NIK 3216061301930012):
+//     Tesseract + 756 varian crop/threshold/PSM   -> 0 varian dapat 16 digit tepat
+//     PaddleOCR 1 pass, tanpa preprocessing apa pun -> NIK TEPAT 16/16
+//
+//   Invarians Tesseract yang jadi alasan pindah: 12 digit pertama selalu benar,
+//   galat SELALU di 4 digit nomor urut ekor. Masalahnya bukan parameter (sudah
+//   disapu habis) melainkan model yang tidak punya konteks baris. Paddle
+//   mendeteksi baris dulu (det) lalu mengenali per baris (rec), jadi NIK
+//   dibaca sebagai satu kesatuan — itu yang membuat digit ekor benar.
+//
+//   Field lain juga lebih baik: 7/8 field vs 5/11 pada Tesseract, dan
+//   confidence dilaporkan per hasil (0.93) sehingga keraguan bisa diukur,
+//   bukan ditebak.
+//
+// YANG DIPERTAHANKAN DARI PIPELINE LAMA:
+//   - Deteksi & crop kartu (blueness). Tidak dibutuhkan untuk akurasi, tapi
+//     memotong area bukan-KTP memangkas jumlah region yang dideteksi dan
+//     ukuran gambar, jadi lebih cepat di HP kelas bawah.
+//   - Peta kebingungan karakter untuk jalur NIK (O->0, b->6, l->1). Paddle
+//     membaca "3216Ob..." karena font KTP memakai O dan b; normalisasi ini
+//     yang mengubahnya jadi angka sah, tanpa mengarang digit.
+//   - Parser field satu-baris di sisi UI (NasabahBaru) tetap dipakai.
+//
+// Aset model dilayani dari /paddle/models/ milik app sendiri: APK harus bisa
+// scan tanpa internet. JANGAN set ort.env.wasm.wasmPaths — Vite sudah
+// membundel .wasm ORT ke dist/assets/, menimpanya membuat loader mencari
+// file yang tidak ada ("both async and sync fetching of the wasm failed").
+import { PaddleOcrService } from 'ppu-paddle-ocr/web'
 
-/** Lebar kerja: cukup untuk teks KTP, tidak membebani RAM WebView. */
-const TARGET_WIDTH = 1800
+/** Lebar kerja kartu: cukup untuk teks KTP, tidak membebani RAM WebView. */
+const CARD_WIDTH = 1600
+
+/** Batas kolom data (kiri) KTP — kolom kanan berisi foto/tanda tangan. */
+const TEXT_COLUMN = 0.62
 
 /** Batas piksel aman untuk canvas di WebView low-end (mis. 2 GB RAM). */
 const MAX_PIXELS = 12_000_000
 
-const isFileProtocol = typeof window !== 'undefined' && window.location.protocol === 'file:'
-
 /**
- * Aset lokal vs CDN.
- * Electron memuat app lewat file:// — importScripts lintas protokol dari blob
- * worker diblokir browser, jadi desktop tetap memakai CDN (perilaku lama).
- * Web dan APK memakai aset lokal: offline-ready dan tanpa latensi jaringan.
+ * Peta kebingungan OCR untuk jalur angka.
+ * Model PP-OCR membaca glyph KTP apa adanya: huruf O dan b yang bentuknya
+ * sama dengan 0 dan 6. Menerjemahkannya SEBELUM validasi membuat NIK
+ * "3216Ob1301930012" jadi "3216061301930012" tanpa mengarang digit.
  */
-function assetPaths(coreFile: string) {
-  if (isFileProtocol) {
-    return {
-      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/worker.min.js',
-      corePath: `https://cdn.jsdelivr.net/npm/tesseract.js-core@7.0.0/${coreFile}`,
-      langPath: 'https://tessdata.projectnaptha.com/4.0.0',
-      gzip: true,
-    }
-  }
-  const base = new URL(`${import.meta.env.BASE_URL}tesseract/`, window.location.href).href
-  return {
-    workerPath: `${base}worker.min.js`,
-    corePath: `${base}${coreFile}`,
-    langPath: `${base}lang`,
-    // Traineddata mentah (bukan .gz): Android Gradle Plugin otomatis
-    // men-decompress aset *.gz saat packaging, sehingga permintaan
-    // `lang/ind.traineddata.gz` jadi 404 di APK. Berkas mentah selalu
-    // terkirim apa adanya dan tetap lebih kecil dari rawatan gz+inflate.
-    gzip: false,
-  }
+const CONFUSE: Record<string, string> = {
+  O: '0', o: '0', D: '0', Q: '0',
+  I: '1', l: '1', i: '1', '|': '1',
+  Z: '2', z: '2',
+  A: '4',
+  S: '5', s: '5',
+  b: '6', G: '6',
+  T: '7',
+  B: '8',
+  g: '9', q: '9',
 }
 
-/** Deteksi SIMD WASM tanpa dependensi tambahan (WebView lama belum punya). */
-function hasWasmSimd(): boolean {
-  try {
-    // Modul minimal berisi instruksi SIMD (i8x16.splat).
-    return WebAssembly.validate(
-      new Uint8Array([
-        0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 10, 10, 1, 8, 0, 65, 0,
-        253, 15, 253, 98, 11,
-      ]),
-    )
-  } catch {
-    return false
-  }
-}
-
-/** Otsu: threshold global optimal dari histogram, tahan cahaya tak rata. */
-function otsuThreshold(gray: Uint8ClampedArray): number {
-  const hist = new Uint32Array(256)
-  const n = gray.length
-  for (let i = 0; i < n; i++) hist[gray[i]]++
-
-  let sumAll = 0
-  for (let t = 0; t < 256; t++) sumAll += t * hist[t]
-
-  let sumB = 0
-  let wB = 0
-  let bestVar = 0
-  let threshold = 128
-  for (let t = 0; t < 256; t++) {
-    wB += hist[t]
-    if (wB === 0) continue
-    const wF = n - wB
-    if (wF === 0) break
-    sumB += t * hist[t]
-    const mB = sumB / wB
-    const mF = (sumAll - sumB) / wF
-    const variance = wB * wF * (mB - mF) * (mB - mF)
-    if (variance > bestVar) {
-      bestVar = variance
-      threshold = t
-    }
-  }
-  return threshold
-}
-
-/** Median 3x3 pada kanal tunggal — membuang bintik JPEG/noise sensor. */
-function median3(src: Uint8ClampedArray, w: number, h: number): Uint8ClampedArray {
-  const out = new Uint8ClampedArray(src.length)
-  const win = new Uint8Array(9)
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      let k = 0
-      for (let dy = -1; dy <= 1; dy++) {
-        const yy = y + dy < 0 ? 0 : y + dy >= h ? h - 1 : y + dy
-        for (let dx = -1; dx <= 1; dx++) {
-          const xx = x + dx < 0 ? 0 : x + dx >= w ? w - 1 : x + dx
-          win[k++] = src[yy * w + xx]
-        }
-      }
-      // insertion sort 9 elemen — lebih cepat dari sort() per piksel
-      for (let i = 1; i < 9; i++) {
-        const v = win[i]
-        let j = i - 1
-        while (j >= 0 && win[j] > v) {
-          win[j + 1] = win[j]
-          j--
-        }
-        win[j + 1] = v
-      }
-      out[y * w + x] = win[4]
-    }
+/** Ubah teks OCR jadi deret digit, memakai peta kebingungan untuk huruf mirip. */
+export function digitsOf(text: string): string {
+  let out = ''
+  for (const ch of text) {
+    if (ch >= '0' && ch <= '9') out += ch
+    else out += CONFUSE[ch] ?? ''
   }
   return out
 }
 
-/**
- * Siapkan gambar untuk Tesseract:
- * normalisasi lebar -> grayscale -> Otsu binarization -> median 3x3.
- */
-async function preprocess(file: File): Promise<Blob> {
-  const bitmap = await createImageBitmap(file)
-  const scale = Math.min(TARGET_WIDTH / bitmap.width, 1)
+/** Gambar + buffer RGBA-nya, supaya deteksi & crop tidak bolak-balik ke canvas. */
+interface Raster {
+  width: number
+  height: number
+  data: Uint8ClampedArray
+}
+
+/** Raster dari bitmap, diskalakan ke lebar target (maks 4x). */
+async function rasterFromBitmap(bitmap: ImageBitmap, targetWidth: number): Promise<Raster> {
+  const scale = Math.min(targetWidth / bitmap.width, 4)
   let w = Math.max(1, Math.round(bitmap.width * scale))
   let h = Math.max(1, Math.round(bitmap.height * scale))
-
-  // Jaga-jaga untuk foto panorama / kamera resolusi ekstrem.
   if (w * h > MAX_PIXELS) {
     const k = Math.sqrt(MAX_PIXELS / (w * h))
     w = Math.max(1, Math.round(w * k))
     h = Math.max(1, Math.round(h * k))
   }
-
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
@@ -155,100 +93,309 @@ async function preprocess(file: File): Promise<Blob> {
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(bitmap, 0, 0, w, h)
-  bitmap.close?.()
-
   const img = ctx.getImageData(0, 0, w, h)
-  const px = img.data
-  const gray = new Uint8ClampedArray(w * h)
-  for (let i = 0, p = 0; i < px.length; i += 4, p++) {
-    gray[p] = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) | 0
-  }
-
-  const thr = otsuThreshold(gray)
-  const bin = new Uint8ClampedArray(gray.length)
-  for (let i = 0; i < gray.length; i++) bin[i] = gray[i] > thr ? 255 : 0
-  const clean = median3(bin, w, h)
-
-  for (let i = 0, p = 0; i < clean.length; i++, p += 4) {
-    px[p] = px[p + 1] = px[p + 2] = clean[i]
-    px[p + 3] = 255
-  }
-  ctx.putImageData(img, 0, 0)
-
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (b) => (b ? resolve(b) : reject(new Error('Preprocessing gagal'))),
-      'image/png',
-    )
-  })
+  return { width: w, height: h, data: img.data }
 }
 
-/** Skor kasar seberapa banyak field KTP yang berhasil dibaca dari teks. */
-export function ocrFieldScore(text: string): number {
-  const flat = text.replace(/\s+/g, ' ')
-  let score = 0
-  if (/\d{16}/.test(text.replace(/\D/g, ''))) score += 3 // NIK paling penting
-  if (/nama/i.test(flat)) score += 1
-  if (/lahir/i.test(flat)) score += 1
-  if (/alamat/i.test(flat)) score += 1
-  if (/rt\s*\/?\s*rw/i.test(flat)) score += 1
-  if (/kel|desa/i.test(flat)) score += 1
-  if (/kecamatan/i.test(flat)) score += 1
-  if (/\d{2}[./-]\d{2}[./-]\d{4}/.test(flat)) score += 1
-  // teks acak gelap biasanya pendek; beri sedikit bobot panjang
-  score += Math.min(3, Math.floor(flat.trim().length / 60))
-  return score
+/** Resize sebuah raster ke lebar tertentu. */
+function resizeRaster(r: Raster, width: number): Raster {
+  if (r.width === width) return r
+  const scale = width / r.width
+  const w = width
+  const h = Math.max(1, Math.round(r.height * scale))
+  const src = document.createElement('canvas')
+  src.width = r.width
+  src.height = r.height
+  const sctx = src.getContext('2d')
+  if (!sctx) throw new Error('Canvas 2D tidak tersedia')
+  sctx.putImageData(new ImageData(new Uint8ClampedArray(r.data), r.width, r.height), 0, 0)
+
+  const dst = document.createElement('canvas')
+  dst.width = w
+  dst.height = h
+  const dctx = dst.getContext('2d', { willReadFrequently: true })
+  if (!dctx) throw new Error('Canvas 2D tidak tersedia')
+  dctx.imageSmoothingEnabled = true
+  dctx.imageSmoothingQuality = 'high'
+  dctx.drawImage(src, 0, 0, w, h)
+  return { width: w, height: h, data: dctx.getImageData(0, 0, w, h).data }
 }
 
-export interface OcrResult {
-  text: string
-  score: number
-  /** true bila NIK 16 digit ditemukan — target utama scan KTP */
-  hasNik: boolean
+/** Crop raster dengan koordinat relatif 0..1. */
+function cropRaster(r: Raster, x0: number, y0: number, x1: number, y1: number): Raster {
+  const sx = Math.max(0, Math.min(r.width - 1, Math.round(x0 * r.width)))
+  const sy = Math.max(0, Math.min(r.height - 1, Math.round(y0 * r.height)))
+  const ex = Math.max(sx + 1, Math.min(r.width, Math.round(x1 * r.width)))
+  const ey = Math.max(sy + 1, Math.min(r.height, Math.round(y1 * r.height)))
+  const w = ex - sx
+  const h = ey - sy
+  const out = new Uint8ClampedArray(w * h * 4)
+  for (let y = 0; y < h; y++) {
+    const srcOff = ((sy + y) * r.width + sx) * 4
+    out.set(r.data.subarray(srcOff, srcOff + w * 4), y * w * 4)
+  }
+  return { width: w, height: h, data: out }
 }
 
 /**
- * Jalankan OCR pada foto KTP.
- * @param onProgress 0..1 untuk indikator "Memindai…"
+ * Deteksi pita kartu KTP memakai "kebiruan", bukan tepi.
+ * KTP elektronik biru: B - R sekitar +69. Latar khas (kulit, meja kayu, ubin)
+ * B - R negatif. Margin lebar, biaya satu pass piksel, tanpa OpenCV.
+ */
+function detectCardBand(r: Raster): { y0: number; y1: number } | null {
+  const { width, height, data } = r
+  const rowScore = new Float32Array(height)
+  for (let y = 0; y < height; y++) {
+    let sum = 0
+    let n = 0
+    const rowOff = y * width * 4
+    for (let x = 0; x < width; x += 4) {
+      const i = rowOff + x * 4
+      const blueness = data[i + 2] - data[i]
+      if (blueness > 25) sum++
+      n++
+    }
+    rowScore[y] = n > 0 ? sum / n : 0
+  }
+  // Pita = rentang baris terpanjang dengan skor di atas ambang.
+  const THRESH = 0.18
+  let bestStart = -1
+  let bestLen = 0
+  let start = -1
+  for (let y = 0; y < height; y++) {
+    if (rowScore[y] >= THRESH) {
+      if (start < 0) start = y
+    } else if (start >= 0) {
+      if (y - start > bestLen) { bestLen = y - start; bestStart = start }
+      start = -1
+    }
+  }
+  if (start >= 0 && height - start > bestLen) { bestLen = height - start; bestStart = start }
+  // Kartu KTP harus menempati porsi berarti dari tinggi frame.
+  if (bestStart < 0 || bestLen < height * 0.15) return null
+  return { y0: bestStart / height, y1: (bestStart + bestLen) / height }
+}
+
+/** ArrayBuffer PNG dari raster (Paddle butuh buffer gambar terenkode). */
+async function toArrayBuffer(r: Raster): Promise<ArrayBuffer> {
+  const canvas = document.createElement('canvas')
+  canvas.width = r.width
+  canvas.height = r.height
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('Canvas 2D tidak tersedia')
+  ctx.putImageData(new ImageData(new Uint8ClampedArray(r.data), r.width, r.height), 0, 0)
+  const blob = await new Promise<Blob | null>((res) => canvas.toBlob(res, 'image/png'))
+  if (!blob) throw new Error('Gagal membuat gambar')
+  return blob.arrayBuffer()
+}
+
+const PROVINCE_CODES: Record<string, string> = {
+  'ACEH': '11', 'SUMATERA UTARA': '12', 'SUMATERA BARAT': '13', 'RIAU': '14',
+  'JAMBI': '15', 'SUMATERA SELATAN': '16', 'BENGKULU': '17', 'LAMPUNG': '18',
+  'KEPULAUAN BANGKA BELITUNG': '19', 'KEPULAUAN RIAU': '21', 'DKI JAKARTA': '31',
+  'JAWA BARAT': '32', 'JAWA TENGAH': '33', 'DI YOGYAKARTA': '34', 'JAWA TIMUR': '35',
+  'BANTEN': '36', 'BALI': '51', 'NUSA TENGGARA BARAT': '52', 'NUSA TENGGARA TIMUR': '53',
+  'KALIMANTAN BARAT': '61', 'KALIMANTAN TENGAH': '62', 'KALIMANTAN SELATAN': '63',
+  'KALIMANTAN TIMUR': '64', 'KALIMANTAN UTARA': '65', 'SULAWESI UTARA': '71',
+  'SULAWESI TENGAH': '72', 'SULAWESI SELATAN': '73', 'SULAWESI TENGGARA': '74',
+  'GORONTALO': '75', 'SULAWESI BARAT': '76', 'MALUKU': '81', 'MALUKU UTARA': '82',
+  'PAPUA': '91', 'PAPUA BARAT': '92',
+}
+
+/** Cari kode provinsi dari teks KTP ("PROVINSI JAWA BARAT" -> "32"). */
+export function extractProvinceCode(text: string): string | null {
+  const flat = text.toUpperCase().replace(/\s+/g, ' ')
+  const names = Object.keys(PROVINCE_CODES).sort((a, b) => b.length - a.length)
+  for (const name of names) {
+    if (flat.includes(name)) return PROVINCE_CODES[name]
+  }
+  return null
+}
+
+/** Validasi struktur NIK: 16 digit, tanggal & bulan wajar, bukan 0 berderet. */
+export function isValidNik(nik: string): boolean {
+  if (!/^\d{16}$/.test(nik)) return false
+  if (/^0{6}/.test(nik)) return false
+  const dd = Number(nik.slice(6, 8))
+  const mm = Number(nik.slice(8, 10))
+  const yy = Number(nik.slice(10, 12))
+  if (dd < 1 || dd > 31) return false
+  if (mm < 1 || mm > 12) return false
+  if (yy > 99) return false
+  return true
+}
+
+export interface OcrResult {
+  /** Teks mentah hasil Paddle, baris per baris. */
+  text: string
+  /** Rata-rata confidence model (0..1) — dipakai UI untuk menandai keraguan. */
+  confidence: number
+  /** NIK 16 digit yang lolos validasi struktur, bila ada. */
+  nik: string | null
+  /** true bila kartu terdeteksi & di-crop (indikator kualitas untuk UI). */
+  cardDetected: boolean
+}
+
+export interface OcrProgress {
+  /** 0..1 */
+  value: number
+  label: string
+}
+
+let service: PaddleOcrService | null = null
+let initPromise: Promise<PaddleOcrService> | null = null
+
+/**
+ * Inisialisasi service sekali, dipakai ulang antar-scan.
+ * Kalau init gagal, promise dibuang supaya percobaan berikutnya tidak
+ * mewarisi kegagalan yang sama.
+ */
+async function getService(onProgress?: (p: OcrProgress) => void): Promise<PaddleOcrService> {
+  if (service) return service
+  if (initPromise) return initPromise
+
+  initPromise = (async () => {
+    onProgress?.({ value: 0.12, label: 'Memuat model OCR…' })
+    const base = new URL(`${import.meta.env.BASE_URL}paddle/models/`, window.location.href).href
+    // WebGPU jauh lebih cepat saat tersedia; WASM jadi fallback. Keduanya
+    // single-thread di WebView tanpa COOP/COEP, jadi jangan harap paralel.
+    const providers = 'gpu' in navigator ? ['webgpu', 'wasm'] : ['wasm']
+    const svc = new PaddleOcrService({
+      model: {
+        detection: `${base}det.onnx`,
+        recognition: `${base}rec.onnx`,
+        charactersDictionary: `${base}dict.txt`,
+      },
+      session: { executionProviders: providers },
+      // canvas-native: tanpa OpenCV, jadi tidak ada wasm tambahan (~8 MB)
+      // yang harus diunduh. Akurasi deteksi sedikit di bawah OpenCV, tapi
+      // deteksi Paddle tetap jauh di atas yang dibutuhkan KTP.
+      processing: { engine: 'canvas-native' },
+      detection: { maxSideLength: 1600 },
+      // charactersDictionary diisi runtime dari model.charactersDictionary;
+      // tipe lib mewajibkannya di sini juga, jadi diisi string kosong.
+      recognition: { strategy: 'per-line', minimumConfidence: 0.4, charactersDictionary: [] },
+    }) as unknown as PaddleOcrService
+
+    try {
+      await svc.initialize()
+    } catch (e) {
+      // WebGPU terdaftar tapi adapter-nya tidak bisa dipakai (umum di emulator
+      // dan HP lama). Ulangi murni WASM: lebih lambat, tapi tetap jalan.
+      if (!providers.includes('webgpu')) throw e
+      const wasmOnly = new PaddleOcrService({
+        model: {
+          detection: `${base}det.onnx`,
+          recognition: `${base}rec.onnx`,
+          charactersDictionary: `${base}dict.txt`,
+        },
+        session: { executionProviders: ['wasm'] },
+        processing: { engine: 'canvas-native' },
+        detection: { maxSideLength: 1600 },
+        recognition: { strategy: 'per-line', minimumConfidence: 0.4, charactersDictionary: [] },
+      }) as unknown as PaddleOcrService
+      await wasmOnly.initialize()
+      service = wasmOnly
+      return wasmOnly
+    }
+    service = svc
+    return svc
+  })()
+
+  try {
+    return await initPromise
+  } catch (e) {
+    initPromise = null
+    throw e
+  }
+}
+
+/**
+ * Pindai foto KTP.
+ *
+ * Alur: deteksi pita kartu -> crop -> potong kolom kanan yang memuat
+ * foto/tanda tangan -> PaddleOCR satu pass -> ambil NIK dari baris yang
+ * menyebut "NIK", dengan normalisasi huruf-mirip-angka.
  */
 export async function scanKtp(
   file: File,
-  onProgress?: (p: number) => void,
+  onProgress?: (p: OcrProgress) => void,
 ): Promise<OcrResult> {
-  onProgress?.(0.05)
-  const prepped = await preprocess(file)
-  onProgress?.(0.2)
+  onProgress?.({ value: 0.03, label: 'Membaca foto…' })
 
-  const coreFile = hasWasmSimd() ? 'tesseract-core-simd-lstm.wasm.js' : 'tesseract-core-lstm.wasm.js'
-  const paths = assetPaths(coreFile)
+  const bitmap = await createImageBitmap(file)
+  const full = await rasterFromBitmap(bitmap, 1500)
+  bitmap.close?.()
 
-  let worker: Worker | null = null
-  try {
-    worker = await createWorker(['ind', 'eng'], 1, {
-      ...paths,
-      logger: (m: { status: string; progress: number }) => {
-        if (m.status === 'recognizing text') onProgress?.(0.2 + m.progress * 0.75)
-      },
-    })
+  // ---- 1. Deteksi & crop kartu ----
+  onProgress?.({ value: 0.08, label: 'Mencari kartu KTP…' })
+  const band = detectCardBand(full)
+  const cardDetected = Boolean(band)
+  const padded = band
+    ? cropRaster(full, 0, Math.max(0, band.y0 - 0.012), 1, Math.min(1, band.y1 + 0.012))
+    : full
+  const card = resizeRaster(padded, CARD_WIDTH)
 
-    let best: OcrResult = { text: '', score: -1, hasNik: false }
+  // ---- 2. Kolom kanan dibuang ----
+  // Foto wajah, tanda tangan, dan masa berlaku ada di kanan. Paddle mendeteksi
+  // baris, jadi teks kolom kanan tidak lagi mencemari nilai kiri (masalah khas
+  // Tesseract). Tapi memotongnya tetap menghemat inferensi dan mencegah
+  // "SEUMUR HIDUP" ikut terbaca sebagai bagian baris alamat.
+  onProgress?.({ value: 0.15, label: 'Menyiapkan gambar…' })
+  const textArea = cropRaster(card, 0, 0, TEXT_COLUMN + 0.06, 1)
 
-    // Dua mode segmentasi: SINGLE_BLOCK lebih baik pada foto redup/miring,
-    // AUTO lebih baik pada foto bersih. Ambil skor tertinggi.
-    for (const psm of [PSM.SINGLE_BLOCK, PSM.AUTO]) {
-      await worker.setParameters({ tessedit_pageseg_mode: psm })
-      const { data } = await worker.recognize(prepped)
-      const text = data.text || ''
-      const score = ocrFieldScore(text)
-      const hasNik = /\d{16}/.test(text.replace(/\D/g, ''))
-      if (score > best.score) best = { text, score, hasNik }
-      // NIK sudah ketemu dan teksnya wajar: tidak perlu mode kedua.
-      if (hasNik && score >= 6) break
-    }
-
-    onProgress?.(1)
-    return best
-  } finally {
-    await worker?.terminate().catch(() => undefined)
+  // ---- 3. OCR ----
+  const svc = await getService(onProgress)
+  onProgress?.({ value: 0.3, label: 'Memindai teks…' })
+  const buffer = await toArrayBuffer(textArea)
+  const result = (await svc.recognize(buffer, { flatten: false })) as unknown as {
+    text: string
+    confidence: number
   }
+  const text = result.text ?? ''
+
+  // ---- 4. NIK dari baris yang menyebutnya ----
+  onProgress?.({ value: 0.88, label: 'Memeriksa NIK…' })
+  let nik: string | null = null
+
+  // Baris NIK dicari dulu: di baris itu angka paling padat, jadi normalisasi
+  // huruf-mirip-angka paling aman diterapkan di sana. Di baris lain "O" bisa
+  // benar-benar huruf O pada nama.
+  const lines = text.split('\n')
+  const nikLine = lines.find((l) => /\bNIK\b/i.test(l)) ?? ''
+  const candidates: string[] = []
+  if (nikLine) {
+    const d = digitsOf(nikLine)
+    for (let i = 0; i + 16 <= d.length; i++) candidates.push(d.slice(i, i + 16))
+  }
+  // Fallback: seluruh teks (kalau label NIK tidak terdeteksi sebagai baris).
+  if (candidates.length === 0) {
+    const d = digitsOf(text)
+    for (let i = 0; i + 16 <= d.length; i++) candidates.push(d.slice(i, i + 16))
+  }
+
+  const province = extractProvinceCode(text)
+  const dobMatch = text.match(/(\d{2})[./-](\d{2})[./-](\d{4})/)
+  const dobKey = dobMatch ? `${dobMatch[1]}${dobMatch[2]}${dobMatch[3].slice(2)}` : null
+
+  const valid = candidates.filter(isValidNik)
+  if (valid.length) {
+    // Utamakan yang tanggal lahirnya cocok dengan field Tempat/Tgl Lahir —
+    // ini menolak NIK dari baris lain (mis. nomor RT/RW yang dipanjangkan).
+    nik =
+      (dobKey && valid.find((v) => v.slice(6, 12) === dobKey)) ??
+      valid.find((v) => !province || v.startsWith(province)) ??
+      valid[0]
+  }
+
+  onProgress?.({ value: 1, label: 'Selesai' })
+  return { text, confidence: result.confidence ?? 0, nik, cardDetected }
+}
+
+/** Lepas model dari memori (dipanggil saat form ditinggalkan). */
+export async function disposeOcr(): Promise<void> {
+  const svc = service as unknown as { destroy?: () => Promise<void> } | null
+  await svc?.destroy?.().catch(() => undefined)
+  service = null
+  initPromise = null
 }
