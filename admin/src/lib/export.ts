@@ -8,13 +8,7 @@
 //     <a download>/blob: juga tidak menghasilkan berkas.
 //
 // Satu fungsi `saveFiles()` untuk semua platform supaya isi, nama, dan jumlah
-// berkas identik di desktop maupun HP:
-//   * APK      : tulis SEMUA berkas ke Documents/SWFinance, lalu SATU share sheet
-//                berisi semuanya. (Dulu tiap CSV memanggil share sendiri, jadi
-//                muncul 3 sheet berurutan dan tombol tampak menggantung.)
-//   * Desktop  : kirim semua ke proses utama lewat IPC -> ditulis ke satu folder
-//                (Downloads/SWFinance), tanpa dialog berulang.
-//   * Web      : unduh tiap berkas lewat <a download>.
+// berkas identik di desktop maupun HP.
 import { Capacitor } from '@capacitor/core'
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
@@ -63,7 +57,7 @@ export interface SavedFile {
   name: string
   /** URI file:// hasil tulis di perangkat (native) */
   uri?: string
-  /** Lokasi yang bisa ditunjukkan ke user, mis. "Documents/SWFinance" */
+  /** Lokasi yang bisa ditunjukkan ke user */
   location: string
 }
 
@@ -75,6 +69,39 @@ export interface OutFile {
 }
 
 const toBlob = (f: OutFile) => (f.data instanceof Blob ? f.data : new Blob([f.data], { type: f.mime }))
+
+/**
+ * Tulis satu berkas di Android.
+ *
+ * Kenapa berlapis: `Directory.Documents` di Capacitor memakai
+ * `Environment.getExternalStoragePublicDirectory(DOCUMENTS)` — jalur legacy yang
+ * TIDAK bisa ditulis di Android 11+ tanpa izin "All files access"
+ * (MANAGE_EXTERNAL_STORAGE). Akibatnya ekspor gagal:
+ *   EACCES ... /storage/emulated/0/Documents/SWFinance/laporan.pdf
+ *
+ * Urutan percobaan:
+ *   1. ExternalStorage -> Download/SWFinance  (terlihat di app Files)
+ *   2. Cache          -> SWFinance           (pasti bisa, tanpa izin)
+ * Berkas yang sama tetap bisa dibagikan dari kedua lokasi (provider file_paths
+ * mendeklarasikan <external-path> dan <cache-path>).
+ */
+async function writeOneNative(name: string, base64: string): Promise<{ uri: string; location: string }> {
+  const attempts: { dir: Directory; path: string; location: string }[] = [
+    { dir: Directory.ExternalStorage, path: `Download/SWFinance/${name}`, location: 'Download/SWFinance' },
+    { dir: Directory.Cache, path: `SWFinance/${name}`, location: 'cache aplikasi (dibagikan)' },
+  ]
+  let lastErr: unknown = null
+  for (const a of attempts) {
+    try {
+      await Filesystem.writeFile({ path: a.path, data: base64, directory: a.dir, recursive: true })
+      const { uri } = await Filesystem.getUri({ path: a.path, directory: a.dir })
+      return { uri, location: a.location }
+    } catch (e) {
+      lastErr = e
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error('Gagal menulis berkas laporan')
+}
 
 /**
  * Simpan sekumpulan berkas sekaligus dan tawarkan ke user.
@@ -117,16 +144,9 @@ export async function saveFiles(files: OutFile[]): Promise<SavedFile[]> {
   const uris: string[] = []
   for (const f of files) {
     const base64 = await blobToBase64(toBlob(f))
-    const path = `SWFinance/${f.name}`
-    const res = await Filesystem.writeFile({
-      path,
-      data: base64,
-      directory: Directory.Documents,
-      recursive: true,
-    })
-    const { uri } = await Filesystem.getUri({ path, directory: Directory.Documents })
-    out.push({ name: f.name, uri: res.uri, location: 'Documents/SWFinance' })
-    uris.push(uri)
+    const w = await writeOneNative(f.name, base64)
+    out.push({ name: f.name, uri: w.uri, location: w.location })
+    uris.push(w.uri)
   }
   try {
     // Share sheet = satu-satunya cara menyimpan ke folder pilihan user di Android 11+.
@@ -137,8 +157,8 @@ export async function saveFiles(files: OutFile[]): Promise<SavedFile[]> {
       dialogTitle: 'Simpan atau kirim laporan',
     })
   } catch {
-    // User menutup share sheet / plugin tidak tersedia: berkas SUDAH tersimpan di
-    // Documents/SWFinance, jadi ini bukan kegagalan ekspor.
+    // User menutup share sheet / plugin tidak tersedia: berkas SUDAH ditulis,
+    // jadi ini bukan kegagalan ekspor.
   }
   return out
 }

@@ -2,7 +2,8 @@ import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { scanKtp } from '../lib/ocr'
 import { supabase } from '../lib/supabase'
-import { pickPhoto, ensureCameraPermission, ensurePhotosPermission, isNative } from '../lib/camera'
+import { pickPhoto, ensureCameraPermission, isNative } from '../lib/camera'
+import KtpCropDialog from '../components/KtpCropDialog'
 import {
   compressImage,
   parseMapsLink,
@@ -61,6 +62,9 @@ export default function NasabahBaru() {
   const [berlakuHingga, setBerlakuHingga] = useState('')
   const [fotoFile, setFotoFile] = useState<File | null>(null)
   const [fotoPrev, setFotoPrev] = useState('')
+  const fotoGalleryRef = useRef<HTMLInputElement>(null)
+  // Dialog crop KTP: sumber gambar + hasil crop menunggu konfirmasi.
+  const [cropSrc, setCropSrc] = useState('')
   // --- Jaminan ---
   const [jaminan, setJaminan] = useState('')
   const [jaminanDetail, setJaminanDetail] = useState('')
@@ -128,9 +132,8 @@ export default function NasabahBaru() {
         }
         const f = await pickPhoto('camera')
         if (f) {
-          setKtpFile(f)
-          pickPreview(f, setKtpPrev)
-          setError(null)
+          // Kamera juga lewat dialog crop: hasil jepretan sering memuat latar.
+          openCrop(f)
         }
       } else {
         ktpInputRef.current?.click()
@@ -140,29 +143,32 @@ export default function NasabahBaru() {
     }
   }
 
-  // Pilih foto KTP dari galeri. Di native pakai plugin (source Photos) supaya
-  // user langsung masuk ke galeri tanpa dialog pilihan; di web pakai input
-  // file TANPA capture, yang otomatis membuka file picker/galeri.
-  const goKtpGallery = async () => {
-    try {
-      if (isNative) {
-        const ok = await ensurePhotosPermission()
-        if (!ok) {
-          setError('Izin galeri ditolak — aktifkan di Pengaturan HP.')
-          return
-        }
-        const f = await pickPhoto('gallery')
-        if (f) {
-          setKtpFile(f)
-          pickPreview(f, setKtpPrev)
-          setError(null)
-        }
-      } else {
-        ktpGalleryRef.current?.click()
-      }
-    } catch (e) {
-      setError(errMsg(e))
-    }
+  // Pilih foto KTP dari galeri.
+  // Di native SENGAJA memakai input file (TYPE_PICK / GET_CONTENT) dan bukan
+  // Camera.getPhoto({source:'photos'}). Plugin terbukti tidak membuka galeri di
+  // HP operator sehingga tombolnya "tidak bisa diklik". Input file adalah jalur
+  // yang paling andal di WebView (Android membuka photo picker resmi), dan
+  // sekaligus menyatukan perilaku web/native.
+  const goKtpGallery = () => {
+    setError(null)
+    ktpGalleryRef.current?.click()
+  }
+
+  // Setelah gambar dipilih, tampilkan dialog crop supaya OCR hanya membaca area
+  // kartu. Operator bisa menggeser/mengubah kotak, atau langsung memakai default.
+  const openCrop = (f: File | null) => {
+    if (!f) return
+    const r = new FileReader()
+    r.onload = () => setCropSrc(String(r.result || ''))
+    r.readAsDataURL(f)
+  }
+
+  const applyCrop = (blob: Blob) => {
+    const f = new File([blob], 'ktp-crop.jpg', { type: 'image/jpeg' })
+    setKtpFile(f)
+    pickPreview(f, setKtpPrev)
+    setCropSrc('')
+    setError(null)
   }
 
   const runOcr = async () => {
@@ -180,7 +186,7 @@ export default function NasabahBaru() {
       // mengenali per baris, jadi NIK dibaca utuh — bukan ditebak per digit.
       const { text, nik: nikFound, cardDetected } = await scanKtp(ktpFile, (p) => {
         setOcrInfo(`${p.label}${p.value < 1 ? ` ${Math.round(p.value * 100)}%` : ''}`)
-      })
+      }, { preCropped: true })
       let filled = 0
       if (nikFound) {
         setNik(nikFound)
@@ -591,16 +597,16 @@ export default function NasabahBaru() {
           ref={ktpGalleryRef}
           type="file"
           accept="image/*"
-          className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }}
+          className="sr-only"
+          onChange={(e) => { const f = e.target.files?.[0] ?? null; openCrop(f); e.target.value = '' }}
         />
         <input
           ref={ktpInputRef}
           type="file"
           accept="image/*"
           capture="environment"
-          className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0] ?? null; setKtpFile(f); pickPreview(f, setKtpPrev); e.target.value = '' }}
+          className="sr-only"
+          onChange={(e) => { const f = e.target.files?.[0] ?? null; openCrop(f); e.target.value = '' }}
         />
 
         <div className="grid gap-2 sm:grid-cols-2">
@@ -698,11 +704,17 @@ export default function NasabahBaru() {
         <div><label className={lbl}>No. HP aktif (format 08…) *</label>
           <input inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value.trim())} placeholder="cth: 081234567890" className={inp} /></div>
         <div><label className={lbl}>Foto nasabah</label>
-          <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-primary-500 hover:bg-primary-50">
-            <input type="file" accept="image/*" capture="user" className="hidden" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFotoFile(f); pickPreview(f, setFotoPrev); e.target.value = '' }} />
-            <div className="text-2xl">🤳</div>
-            <div className="mt-1 text-sm font-medium text-slate-700">{fotoFile ? fotoFile.name : 'Klik untuk pilih foto nasabah'}</div>
-          </label>
+          {/* Foto nasabah diambil dari GALERI (bukan kamera selfie): operator
+              biasanya sudah memfoto nasabah atau memakai foto yang dikirim
+              lewat WhatsApp. capture="user" memaksa kamera depan sehingga
+              galeri tidak pernah terbuka — itu keluhan operator. */}
+          <input ref={fotoGalleryRef} type="file" accept="image/*" className="sr-only"
+            onChange={(e) => { const f = e.target.files?.[0] ?? null; setFotoFile(f); pickPreview(f, setFotoPrev); e.target.value = '' }} />
+          <button type="button" onClick={() => fotoGalleryRef.current?.click()}
+            className="block w-full cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-primary-500 hover:bg-primary-50">
+            <div className="text-2xl">🖼️</div>
+            <div className="mt-1 text-sm font-medium text-slate-700">{fotoFile ? fotoFile.name : 'Pilih foto nasabah dari galeri'}</div>
+          </button>
           {fotoPrev && <img src={fotoPrev} alt="Nasabah" className="mt-2 max-h-48 rounded-lg border" />}</div>
       </div>
 
@@ -720,7 +732,7 @@ export default function NasabahBaru() {
         </div>
         <div><label className={lbl}>Foto bukti (bisa banyak, max 5)</label>
           <label className="block cursor-pointer rounded-2xl border-2 border-dashed border-slate-300 px-4 py-5 text-center hover:border-primary-500 hover:bg-primary-50">
-            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => {
+            <input type="file" accept="image/*" multiple className="sr-only" onChange={(e) => {
               const fs = [...(e.target.files ?? [])].slice(0, 5); setBuktiFiles(fs)
               setBuktiPrev([]); fs.forEach((f) => { const r = new FileReader(); r.onload = () => setBuktiPrev((p) => [...p, String(r.result || '')]); r.readAsDataURL(f) })
               e.target.value = ''
@@ -743,6 +755,15 @@ export default function NasabahBaru() {
           </p>
         )}
       </div>
+
+      {/* Dialog crop KTP: tampil setelah foto dipilih, sebelum OCR. */}
+      {cropSrc && (
+        <KtpCropDialog
+          src={cropSrc}
+          onCancel={() => setCropSrc('')}
+          onConfirm={applyCrop}
+        />
+      )}
     </div>
   )
 }

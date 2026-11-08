@@ -167,72 +167,74 @@ export default function Laporan() {
   const eksporCSV = async () => {
     if (!lap || !rk || !periode) return
     const p = `${periode.tahun}-${String(periode.bulan).padStart(2, '0')}`
-    const pre = `laporan_${p}`
     setEksporBusy('csv')
     setEksporInfo('')
     try {
-      // CSV dibangun lebih dulu sebagai teks, lalu DIsimpan sekaligus dalam satu
-      // panggilan. Semua platform menerima berkas yang sama (nama + isi), dan di
-      // APK hanya muncul SATU share sheet untuk ketiga berkas — bukan tiga sheet
-      // berurutan yang membuat tombol tampak menggantung.
-      const csvFile = (name: string, rows: (string | number)[][]) => ({
-        name,
-        // BOM UTF-8 supaya Excel Windows membaca karakter Indonesia dengan benar.
-        data: new Blob(['\ufeff' + toCsv(rows)], { type: 'text/csv;charset=utf-8;' }),
-        mime: 'text/csv;charset=utf-8;',
+      // SATU berkas CSV berisi tiga bagian, dipisah baris kosong + judul bagian.
+      // Operator memintanya: tiga berkas terpisah merepotkan (harus dibuka
+      // bergantian, dan dulu memicu tiga share sheet di HP). Satu berkas tetap
+      // rapi karena tiap bagian punya header kolomnya sendiri.
+      const baris: (string | number)[][] = []
+
+      // ---- Bagian 1: Ringkasan + arus kas ----
+      baris.push(['Laporan Bulanan SWFinance'])
+      baris.push(['Periode', `${periode.nama_bulan} ${periode.tahun}`])
+      baris.push(['Rentang', `${periode.dari} s/d ${periode.sampai}`])
+      baris.push([])
+      baris.push(['RINGKASAN'])
+      baris.push(['Metrik', 'Nilai (Rp)'])
+      baris.push(['Modal dipinjamkan (pencairan)', rk.pencairan])
+      baris.push(['Pinjaman baru', rk.pinjaman_baru])
+      baris.push(['Nasabah baru', rk.nasabah_baru])
+      baris.push(['Tagihan jatuh tempo', rk.jatuh_tempo])
+      baris.push(['Terkumpul (bruto)', rk.terkumpul])
+      baris.push(['Koreksi pembayaran', rk.koreksi])
+      baris.push(['Terkumpul bersih', rk.terkumpul_bersih])
+      baris.push(['Kolektibilitas (%)', kolektibilitas])
+      baris.push(['Laba bunga', rk.laba_bunga])
+      baris.push(['Sisa piutang', rk.sisa_piutang])
+      baris.push(['Total modal berjalan', rk.total_modal])
+      baris.push(['Pinjaman berjalan', rk.pinjaman_berjalan])
+      baris.push(['Nasabah aktif (bayar bulan ini)', rk.nasabah_aktif])
+      baris.push([])
+      baris.push(['ARUS KAS', 'Nilai (Rp)'])
+      baris.push(['Kas masuk - pembayaran', lap.arus_kas.masuk_pembayaran])
+      baris.push(['Kas masuk - lainnya', lap.arus_kas.masuk_lain])
+      baris.push(['Kas keluar - pencairan', lap.arus_kas.keluar_pencairan])
+      baris.push(['Kas keluar - lainnya', lap.arus_kas.keluar_lain])
+      baris.push([
+        'Kas bersih',
+        lap.arus_kas.masuk_pembayaran +
+          lap.arus_kas.masuk_lain -
+          lap.arus_kas.keluar_pencairan -
+          lap.arus_kas.keluar_lain,
+      ])
+
+      // ---- Bagian 2: Tren 6 bulan ----
+      baris.push([])
+      baris.push(['TREN BULANAN'])
+      baris.push(['Bulan', 'Pencairan', 'Terkumpul', 'Jatuh Tempo'])
+      for (const t of lap.tren ?? []) {
+        baris.push([t.label_panjang, t.pencairan, t.terkumpul, t.jatuh_tempo])
+      }
+
+      // ---- Bagian 3: Top nasabah ----
+      baris.push([])
+      baris.push(['TOP NASABAH'])
+      baris.push(['Peringkat', 'Nasabah', 'NIK', 'Status Keandalan', 'Pinjaman', 'Sisa Piutang'])
+      ;(lap.top_nasabah ?? []).forEach((t, i) => {
+        baris.push([i + 1, t.nama, t.nik, t.status, t.pinjaman, t.sisa])
       })
 
-      // 1. Ringkasan + arus kas
-      const csvRingkasan = csvFile(`${pre}_ringkasan.csv`, [
-        ['Laporan Bulanan SWFinance'],
-        ['Periode', `${periode.nama_bulan} ${periode.tahun}`],
-        ['Rentang', `${periode.dari} s/d ${periode.sampai}`],
-        [],
-        ['Metrik', 'Nilai (Rp)'],
-        ['Modal dipinjamkan (pencairan)', rk.pencairan],
-        ['Pinjaman baru', rk.pinjaman_baru],
-        ['Nasabah baru', rk.nasabah_baru],
-        ['Tagihan jatuh tempo', rk.jatuh_tempo],
-        ['Terkumpul (bruto)', rk.terkumpul],
-        ['Koreksi pembayaran', rk.koreksi],
-        ['Terkumpul bersih', rk.terkumpul_bersih],
-        ['Kolektibilitas (%)', kolektibilitas],
-        ['Laba bunga', rk.laba_bunga],
-        ['Sisa piutang', rk.sisa_piutang],
-        ['Total modal berjalan', rk.total_modal],
-        ['Pinjaman berjalan', rk.pinjaman_berjalan],
-        ['Nasabah aktif (bayar bulan ini)', rk.nasabah_aktif],
-        [],
-        ['Arus Kas', 'Nilai (Rp)'],
-        ['Kas masuk - pembayaran', lap.arus_kas.masuk_pembayaran],
-        ['Kas masuk - lainnya', lap.arus_kas.masuk_lain],
-        ['Kas keluar - pencairan', lap.arus_kas.keluar_pencairan],
-        ['Kas keluar - lainnya', lap.arus_kas.keluar_lain],
-        [
-          'Kas bersih',
-          lap.arus_kas.masuk_pembayaran +
-            lap.arus_kas.masuk_lain -
-            lap.arus_kas.keluar_pencairan -
-            lap.arus_kas.keluar_lain,
-        ],
+      await saveFiles([
+        {
+          name: `laporan_${p}.csv`,
+          // BOM UTF-8 supaya Excel Windows membaca karakter Indonesia dengan benar.
+          data: new Blob(['\ufeff' + toCsv(baris)], { type: 'text/csv;charset=utf-8;' }),
+          mime: 'text/csv;charset=utf-8;',
+        },
       ])
-
-      // 2. Tren 6 bulan
-      const csvTren = csvFile(`${pre}_tren.csv`, [
-        ['Bulan', 'Pencairan', 'Terkumpul', 'Jatuh Tempo'],
-        ...(lap.tren ?? []).map((t) => [t.label_panjang, t.pencairan, t.terkumpul, t.jatuh_tempo]),
-      ])
-
-      // 3. Top nasabah
-      const csvTop = csvFile(`${pre}_top_nasabah.csv`, [
-        ['Peringkat', 'Nasabah', 'NIK', 'Status Keandalan', 'Pinjaman', 'Sisa Piutang'],
-        ...(lap.top_nasabah ?? []).map((t, i) => [i + 1, t.nama, t.nik, t.status, t.pinjaman, t.sisa]),
-      ])
-
-      await saveFiles([csvRingkasan, csvTren, csvTop])
-      // Lokasi sebenarnya dikembalikan platform: HP "Documents/SWFinance",
-      // desktop "…\Downloads\SWFinance", web "folder Unduhan browser".
-      setEksporInfo('3 berkas CSV tersimpan — cek folder unduhan / menu berbagi.')
+      setEksporInfo('CSV tersimpan (1 berkas) — cek folder unduhan / menu berbagi.')
     } catch (e) {
       setError(`Ekspor CSV gagal: ${errMsg(e)}`)
     } finally {

@@ -84,11 +84,18 @@ async function resolveMaps(url: string) {
     headers: { 'User-Agent': 'Mozilla/5.0 (compatible; DanakuBot/1.0)' },
   })
   const finalUrl = r.url || u
-  let m = finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ??
-    finalUrl.match(/[?&](?:q|query)=(-?\d+\.\d+),(-?\d+\.\d+)/)
+  // Urutan penting: pola `!3dLAT!4dLNG` adalah yang dipakai Google Maps di URL
+  // /place/.../data=... (hasil redirect share link "maps.app.goo.gl"). Pola ini
+  // TIDAK mengandung "@lat,lng" sehingga versi lama gagal di link share modern:
+  //   .../data=!4m6!3m5!1s0x...!8m2!3d-6.2502286!4d107.0304369!18m1!1e1
+  let m =
+    finalUrl.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ??
+    finalUrl.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/) ??
+    finalUrl.match(/[?&](?:q|query|ll|center|destination)=(-?\d+\.\d+)(?:,|%2C|\s)+(-?\d+\.\d+)/i)
   if (!m) {
     const html = await r.text().catch(() => '')
     m =
+      html.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/) ??
       html.match(/"lat":\s*(-?\d+\.\d+)[^}]{0,120}?"lng":\s*(-?\d+\.\d+)/i) ??
       html.match(/\[\s*(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)\s*\]/) ??
       html.match(/center[=:]\s*(-?\d+\.\d+)[,%20]+(-?\d+\.\d+)/i)

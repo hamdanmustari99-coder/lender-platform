@@ -320,6 +320,7 @@ async function getService(onProgress?: (p: OcrProgress) => void): Promise<Paddle
 export async function scanKtp(
   file: File,
   onProgress?: (p: OcrProgress) => void,
+  opts?: { preCropped?: boolean },
 ): Promise<OcrResult> {
   onProgress?.({ value: 0.03, label: 'Membaca foto…' })
 
@@ -328,8 +329,11 @@ export async function scanKtp(
   bitmap.close?.()
 
   // ---- 1. Deteksi & crop kartu ----
+  // Kalau operator sudah mengatur kotak crop manual (dialog crop), area kartu
+  // sudah pas: lewati deteksi blueness. Deteksi otomatis pada gambar yang sudah
+  // ketat bisa salah pilih pita dan memotong tepi kartu.
   onProgress?.({ value: 0.08, label: 'Mencari kartu KTP…' })
-  const band = detectCardBand(full)
+  const band = opts?.preCropped ? null : detectCardBand(full)
   const cardDetected = Boolean(band)
   const padded = band
     ? cropRaster(full, 0, Math.max(0, band.y0 - 0.012), 1, Math.min(1, band.y1 + 0.012))
