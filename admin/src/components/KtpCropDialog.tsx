@@ -15,6 +15,8 @@ const KTP_RATIO = 85.6 / 53.98
 interface Props {
   /** Sumber gambar (data URL hasil pilih kamera/galeri). */
   src: string
+  /** Kotak awal (koordinat relatif 0..1) dari deteksi kartu, bila ada. */
+  suggested?: { x: number; y: number; w: number; h: number } | null
   /** Teks tombol konfirmasi. */
   confirmText?: string
   onCancel: () => void
@@ -31,7 +33,7 @@ interface Box {
 
 type DragMode = 'move' | 'resize' | null
 
-export default function KtpCropDialog({ src, confirmText = 'Pakai area ini', onCancel, onConfirm }: Props) {
+export default function KtpCropDialog({ src, suggested, confirmText = 'Pakai area ini', onCancel, onConfirm }: Props) {
   const imgRef = useRef<HTMLImageElement>(null)
   const [box, setBox] = useState<Box | null>(null)
   const [busy, setBusy] = useState(false)
@@ -42,13 +44,22 @@ export default function KtpCropDialog({ src, confirmText = 'Pakai area ini', onC
     box: { x: 0, y: 0, w: 0, h: 0 },
   })
 
-  // Inisialisasi kotak: 84% lebar gambar, rasio KTP, di tengah.
+  // Inisialisasi kotak. Kalau deteksi kartu memberi saran (koordinat relatif),
+  // pakai itu; kalau tidak, jatuh ke kotak center 84% lebar dengan rasio KTP.
   const initBox = useCallback(() => {
     const img = imgRef.current
     if (!img) return
     const iw = img.clientWidth
     const ih = img.clientHeight
     if (!iw || !ih) return
+    if (suggested && suggested.w > 0 && suggested.h > 0) {
+      return setBox({
+        x: suggested.x * iw,
+        y: suggested.y * ih,
+        w: suggested.w * iw,
+        h: suggested.h * ih,
+      })
+    }
     let w = iw * 0.84
     let h = w / KTP_RATIO
     if (h > ih * 0.84) {
@@ -56,13 +67,21 @@ export default function KtpCropDialog({ src, confirmText = 'Pakai area ini', onC
       w = h * KTP_RATIO
     }
     setBox({ x: (iw - w) / 2, y: (ih - h) / 2, w, h })
-  }, [])
+  }, [suggested])
 
   useEffect(() => {
     const img = imgRef.current
     if (!img) return
     if (img.complete) initBox()
   }, [initBox, src])
+
+  // Saran deteksi sering tiba SETELAH gambar selesai dimuat (deteksi berjalan
+  // paralel). Saat saran masuk, pindahkan kotak ke posisi kartu.
+  useEffect(() => {
+    const img = imgRef.current
+    if (!img || !img.complete || !suggested) return
+    initBox()
+  }, [suggested, initBox])
 
   const clamp = (b: Box): Box => {
     const img = imgRef.current
@@ -145,7 +164,10 @@ export default function KtpCropDialog({ src, confirmText = 'Pakai area ini', onC
         </div>
 
         <div className="relative mx-auto w-full flex-1 overflow-hidden rounded-xl bg-black">
-          <div className="relative mx-auto w-full" style={{ lineHeight: 0 }}>
+          {/* w-fit: bingkai posisi harus PERSIS selebar gambar. Kalau w-full,
+              pada foto portrait (img dibatasi max-h) gambar lebih sempit dari
+              bingkai sehingga kotak crop bergeser relatif ke bingkai. */}
+          <div className="relative mx-auto w-fit max-w-full" style={{ lineHeight: 0 }}>
             <img
               ref={imgRef}
               src={src}

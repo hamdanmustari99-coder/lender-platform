@@ -97,7 +97,59 @@ async function rasterFromBitmap(bitmap: ImageBitmap, targetWidth: number): Promi
   return { width: w, height: h, data: img.data }
 }
 
-/** Resize sebuah raster ke lebar tertentu. */
+/**
+ * Saran kotak crop KTP dari DETEKSI, dalam koordinat relatif 0..1.
+ *
+ * Kenapa perlu: kotak crop default yang "center 84% lebar" salah tempat pada
+ * foto lapangan. Operator memfoto KTP portrait (HP tegak) sementara kartu
+ * landscape ada di tengah-bawah dan menempel ke tepi kiri — kotak center
+ * memotong 3-8% kiri kartu sehingga "NIK" terbaca "LK", "Nama" jadi "na".
+ * Deteksi kebiruan yang sudah ada (detectCardBand) memberi posisi kartu
+ * sebenarnya, jadi kotak default mendarat tepat di kartu.
+ *
+ * Balikan null kalau kartu tidak terdeteksi (dialog jatuh ke kotak center).
+ */
+export async function suggestKtpBox(
+  bitmap: ImageBitmap,
+): Promise<{ x: number; y: number; w: number; h: number } | null> {
+  const small = await rasterFromBitmap(bitmap, 900)
+  const band = detectCardBand(small)
+  if (!band) return null
+  const { width, height, data } = small
+  const sy = Math.max(0, Math.floor(band.y0 * height))
+  const ey = Math.min(height, Math.ceil(band.y1 * height))
+
+  // Kolom kartu: dalam pita vertikal, kolom yang mayoritas biru.
+  let x0 = width
+  let x1 = 0
+  for (let x = 0; x < width; x++) {
+    let hit = 0
+    let n = 0
+    for (let y = sy; y < ey; y += 2) {
+      const i = (y * width + x) * 4
+      if (data[i + 2] - data[i] > 25) hit++
+      n++
+    }
+    if (n && hit / n > 0.2) {
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+    }
+  }
+  if (x1 <= x0) {
+    x0 = 0
+    x1 = width - 1
+  }
+
+  const padX = width * 0.014
+  const nx0 = Math.max(0, x0 - padX) / width
+  const nx1 = Math.min(width, x1 + padX) / width
+  const ny0 = Math.max(0, band.y0 - 0.014)
+  const ny1 = Math.min(1, band.y1 + 0.014)
+  return { x: nx0, y: ny0, w: nx1 - nx0, h: ny1 - ny0 }
+}
+
+/**
+ * Resize sebuah raster ke lebar tertentu. */
 function resizeRaster(r: Raster, width: number): Raster {
   if (r.width === width) return r
   const scale = width / r.width
@@ -135,6 +187,24 @@ function cropRaster(r: Raster, x0: number, y0: number, x1: number, y1: number): 
     out.set(r.data.subarray(srcOff, srcOff + w * 4), y * w * 4)
   }
   return { width: w, height: h, data: out }
+}
+
+/**
+ * Crop raster dengan koordinat PIKSEL (bukan relatif). Dipakai pass kedua NIK.
+ */
+function cropPixels(r: Raster, x: number, y: number, w: number, h: number): Raster {
+  const sx = Math.max(0, Math.min(r.width - 1, Math.round(x)))
+  const sy = Math.max(0, Math.min(r.height - 1, Math.round(y)))
+  const ex = Math.max(sx + 1, Math.min(r.width, Math.round(x + w)))
+  const ey = Math.max(sy + 1, Math.min(r.height, Math.round(y + h)))
+  const cw = ex - sx
+  const ch = ey - sy
+  const out = new Uint8ClampedArray(cw * ch * 4)
+  for (let yy = 0; yy < ch; yy++) {
+    const srcOff = ((sy + yy) * r.width + sx) * 4
+    out.set(r.data.subarray(srcOff, srcOff + cw * 4), yy * cw * 4)
+  }
+  return { width: cw, height: ch, data: out }
 }
 
 /**
@@ -223,6 +293,43 @@ export function isValidNik(nik: string): boolean {
   if (mm < 1 || mm > 12) return false
   if (yy > 99) return false
   return true
+}
+
+/**
+ * Reparasi NIK 15 digit menjadi 16 via STRUKTUR KTP, bukan menerka bebas.
+ *
+ * NIK mengikuti hukum Indonesia: 6 digit pertama = kode provinsi/kab/kec,
+ * posisi 7-12 = TANGGAL LAHIR (ddmmYY), 4 digit terakhir nomor urut. Saat OCR
+ * blur "memakan" satu digit (khas foto kecil), deret jadi 15 digit. Di sini
+ * disisipkan satu digit (0-9) di satu posisi sehingga hasilnya:
+ *   - lolos isValidNik, DAN
+ *   - posisi 7-12 cocok dengan tanggal lahir yang TERCATAT di field
+ *     Tempat/Tgl Lahir (sumber independen dari baris yang sama), DAN
+ *   - (kalau ada) diawali kode provinsi dari alamat.
+ * Hanya menerima kalau persis SATU kandidat — kalau ambigu, kembalikan null.
+ */
+export function repairNik(
+  digits15: string,
+  dobKey: string | null,
+  province: string | null,
+): string | null {
+  if (digits15.length !== 15 || !dobKey) return null
+  let found: string | null = null
+  for (let pos = 0; pos <= 15; pos++) {
+    for (let ch = '0'; ch <= '9'; ch = String(Number(ch) + 1)) {
+      const cand = digits15.slice(0, pos) + ch + digits15.slice(pos)
+      if (
+        isValidNik(cand) &&
+        cand.slice(6, 12) === dobKey &&
+        (!province || cand.startsWith(province)) &&
+        cand !== found
+      ) {
+        if (found) return null // ambigu: dua kandidat valid berbeda
+        found = cand
+      }
+    }
+  }
+  return found
 }
 
 export interface OcrResult {
@@ -355,41 +462,117 @@ export async function scanKtp(
   const result = (await svc.recognize(buffer, { flatten: false })) as unknown as {
     text: string
     confidence: number
+    lines?: { text: string; box: { x: number; y: number; width: number; height: number }; confidence: number }[]
   }
   const text = result.text ?? ''
+  // Baris NIK TIDAK selalu satu objek: di foto yang diproses app (kartu 1600),
+  // label "NIK" dan digit "3216…" bisa jadi DUA fragmen terpisah. Gabungkan
+  // per baris (x, y, box) supaya pass-1 membaca baris NIK utuh + kenal box-nya
+  // untuk pass-2. Flatten tiap item, lalu group berdasarkan y yang berdekatan.
+  const items: { text: string; box: { x: number; y: number; width: number; height: number } }[] = []
+  for (const L of result.lines ?? []) {
+    for (const it of Array.isArray(L) ? L : [L]) {
+      if (it?.text != null && it?.box) items.push({ text: String(it.text), box: it.box })
+    }
+  }
+  items.sort((a, b) => a.box.y - b.box.y || a.box.x - b.box.x)
+  const lines: { text: string; box: { x: number; y: number; width: number; height: number } }[] = []
+  for (const it of items) {
+    const prev = lines[lines.length - 1]
+    if (prev && Math.abs(it.box.y - prev.box.y) <= Math.max(8, prev.box.height * 0.6)) {
+      // fragmen pada baris yang sama: gabung teks + perluas box
+      const x = Math.min(prev.box.x, it.box.x)
+      const y = Math.min(prev.box.y, it.box.y)
+      const right = Math.max(prev.box.x + prev.box.width, it.box.x + it.box.width)
+      const bottom = Math.max(prev.box.y + prev.box.height, it.box.y + it.box.height)
+      lines[lines.length - 1] = {
+        text: (prev.text + ' ' + it.text).replace(/\s+/g, ' ').trim(),
+        box: { x, y, width: right - x, height: bottom - y },
+      }
+    } else {
+      lines.push({ text: it.text, box: it.box })
+    }
+  }
 
   // ---- 4. NIK dari baris yang menyebutnya ----
-  onProgress?.({ value: 0.88, label: 'Memeriksa NIK…' })
-  let nik: string | null = null
-
   // Baris NIK dicari dulu: di baris itu angka paling padat, jadi normalisasi
   // huruf-mirip-angka paling aman diterapkan di sana. Di baris lain "O" bisa
   // benar-benar huruf O pada nama.
-  const lines = text.split('\n')
-  const nikLine = lines.find((l) => /\bNIK\b/i.test(l)) ?? ''
-  const candidates: string[] = []
-  if (nikLine) {
-    const d = digitsOf(nikLine)
-    for (let i = 0; i + 16 <= d.length; i++) candidates.push(d.slice(i, i + 16))
-  }
-  // Fallback: seluruh teks (kalau label NIK tidak terdeteksi sebagai baris).
-  if (candidates.length === 0) {
-    const d = digitsOf(text)
-    for (let i = 0; i + 16 <= d.length; i++) candidates.push(d.slice(i, i + 16))
-  }
+  onProgress?.({ value: 0.88, label: 'Memeriksa NIK…' })
+  let nik: string | null = null
 
+  const nikObj = lines.find((l) => /\bNIK\b/i.test(l.text))
   const province = extractProvinceCode(text)
   const dobMatch = text.match(/(\d{2})[./-](\d{2})[./-](\d{4})/)
   const dobKey = dobMatch ? `${dobMatch[1]}${dobMatch[2]}${dobMatch[3].slice(2)}` : null
 
-  const valid = candidates.filter(isValidNik)
-  if (valid.length) {
+  // Kumpulkan kandidat 16-digit dari sebuah deret digit: window geser 16, plus
+  // reparasi struktur (15 digit -> sisipkan digit yang hilang pakai DOB key).
+  const collect = (d: string): string[] => {
+    const out: string[] = []
+    for (let i = 0; i + 16 <= d.length; i++) out.push(d.slice(i, i + 16))
+    if (d.length === 15) {
+      const r = repairNik(d, dobKey, province)
+      if (r) out.push(r)
+    } else if (d.length > 15) {
+      for (let i = 0; i + 15 <= d.length; i++) {
+        const r = repairNik(d.slice(i, i + 15), dobKey, province)
+        if (r && !out.includes(r)) out.push(r)
+      }
+    }
+    return out
+  }
+
+  const candidates: string[] = []
+  if (nikObj) candidates.push(...collect(digitsOf(nikObj.text)))
+  // Fallback: seluruh teks (kalau label NIK tidak terdeteksi sebagai baris).
+  if (candidates.every((c) => !isValidNik(c))) candidates.push(...collect(digitsOf(text)))
+
+  const pick = (arr: string[]): string | null => {
+    const valid = [...new Set(arr)].filter(isValidNik)
+    if (valid.length === 0) return null
     // Utamakan yang tanggal lahirnya cocok dengan field Tempat/Tgl Lahir —
     // ini menolak NIK dari baris lain (mis. nomor RT/RW yang dipanjangkan).
-    nik =
+    return (
       (dobKey && valid.find((v) => v.slice(6, 12) === dobKey)) ??
       valid.find((v) => !province || v.startsWith(province)) ??
       valid[0]
+    )
+  }
+
+  nik = pick(candidates)
+
+  // ---- 5. Pass kedua: zoom baris NIK ----
+  // Kalau pass pertama belum menghasilkan NIK valid, potong persis baris "NIK"
+  // (koordinat dari deteksi Paddle), perbesar 2.5x, lalu OCR ulang. Ini
+  // memperbaiki NIK pada foto kecil/blur: digit yang tadinya setinggi <12 px
+  // jadi cukup tinggi untuk model. textArea 1:1 dengan card (crop dimulai di
+  // x=0), jadi koordinat baris langsung sah di card.
+  if (!nik && nikObj && card) {
+    const { box } = nikObj
+    const ZOOM = 2.5
+    const padX = Math.max(4, box.width * 0.04)
+    const padY = Math.max(2, box.height * 0.2)
+    let cy = Math.max(0, Math.round(box.y - padY))
+    let cw = Math.min(card.width - box.x, Math.round(box.width + padX * 2))
+    let ch = Math.round(box.height + padY * 2)
+    if (cy + ch > card.height) {
+      // tarik ke atas supaya crop muat (jangan pangkas tinggi baris)
+      ch = card.height - cy
+    }
+    // Pangkas lebar: digit NIK selalu di ujung kanan baris, huruf "NIK " kiri.
+    const digitsOnlyW = Math.min(cw, Math.round(cw * 0.78))
+    const cropx = box.x + (cw - digitsOnlyW)
+    const cropNIK = cropPixels(card, cropx, cy, digitsOnlyW, ch)
+    const zoomed = resizeRaster(cropNIK, Math.round(digitsOnlyW * ZOOM))
+    const buf2 = await toArrayBuffer(zoomed)
+    const r2 = (await svc.recognize(buf2, { flatten: false })) as unknown as {
+      text: string
+    }
+    const d2 = digitsOf(r2.text ?? '')
+    const c2 = collect(d2)
+    const picked = pick(c2)
+    if (picked) nik = picked
   }
 
   onProgress?.({ value: 1, label: 'Selesai' })

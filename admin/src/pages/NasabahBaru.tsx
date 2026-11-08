@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { scanKtp } from '../lib/ocr'
+import { scanKtp, suggestKtpBox } from '../lib/ocr'
 import { supabase } from '../lib/supabase'
 import { pickPhoto, ensureCameraPermission, isNative } from '../lib/camera'
 import KtpCropDialog from '../components/KtpCropDialog'
@@ -65,6 +65,11 @@ export default function NasabahBaru() {
   const fotoGalleryRef = useRef<HTMLInputElement>(null)
   // Dialog crop KTP: sumber gambar + hasil crop menunggu konfirmasi.
   const [cropSrc, setCropSrc] = useState('')
+  // Saran kotak crop dari deteksi kartu (relatif 0..1), dihitung saat foto
+  // dipilih. Kalau kartu terdeteksi, kotak default langsung mendarat di kartu.
+  const [cropBox, setCropBox] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  // Apakah crop terakhir berasal dari kotak hasil deteksi kartu (bukan center).
+  const [cropDetected, setCropDetected] = useState(false)
   // --- Jaminan ---
   const [jaminan, setJaminan] = useState('')
   const [jaminanDetail, setJaminanDetail] = useState('')
@@ -156,17 +161,30 @@ export default function NasabahBaru() {
 
   // Setelah gambar dipilih, tampilkan dialog crop supaya OCR hanya membaca area
   // kartu. Operator bisa menggeser/mengubah kotak, atau langsung memakai default.
+  // Default kotak = hasil deteksi kartu (lihat suggestKtpBox), dihitung paralel.
   const openCrop = (f: File | null) => {
     if (!f) return
+    setCropBox(null)
     const r = new FileReader()
     r.onload = () => setCropSrc(String(r.result || ''))
     r.readAsDataURL(f)
+    createImageBitmap(f)
+      .then((bm) =>
+        suggestKtpBox(bm).then((b) => {
+          bm.close?.()
+          if (b) setCropBox(b)
+        }),
+      )
+      .catch(() => {
+        /* preview tetap muncul, kotak jatuh ke center */
+      })
   }
 
   const applyCrop = (blob: Blob) => {
     const f = new File([blob], 'ktp-crop.jpg', { type: 'image/jpeg' })
     setKtpFile(f)
     pickPreview(f, setKtpPrev)
+    setCropDetected(Boolean(cropBox))
     setCropSrc('')
     setError(null)
   }
@@ -184,9 +202,12 @@ export default function NasabahBaru() {
       // Pipeline ada di lib/ocr.ts: deteksi kartu via blueness -> crop ->
       // PaddleOCR (PP-OCRv6) satu pass. Model mendeteksi baris dulu lalu
       // mengenali per baris, jadi NIK dibaca utuh — bukan ditebak per digit.
+      // preCropped diisi hasil deteksi dialog: kalau kartu terdeteksi, kotak
+      // crop sudah pas, jadi deteksi internal dilewati; kalau tidak, deteksi
+      // internal dipakai sebagai jaring pengaman.
       const { text, nik: nikFound, cardDetected } = await scanKtp(ktpFile, (p) => {
         setOcrInfo(`${p.label}${p.value < 1 ? ` ${Math.round(p.value * 100)}%` : ''}`)
-      }, { preCropped: true })
+      }, { preCropped: cropDetected })
       let filled = 0
       if (nikFound) {
         setNik(nikFound)
@@ -205,7 +226,8 @@ export default function NasabahBaru() {
       // diambil dari sisa baris yang sama.
       const LABEL_ALIAS: [RegExp, string][] = [
         [/\b(?:k[ce]c?[ae]m[ae]t[ae]n|kccamatan|otamalan|amalan|recamatan)\b/i, 'kec'],
-        [/\b(?:kel\s*\/?\s*desa|kelurahan|kelbesa|keldasa|kel\s*desa)\b/i, 'kel'],
+        // "Kel/Desa" sering terbaca "Ke/Desa", "Kelbesa", "Keldasa", atau "Kelurahan".
+        [/\b(?:k[ce]l?\s*\/?\s*desa|kelurahan|kelbesa|keldasa|kel\s*desa|ke\s*\/?\s*desa)\b/i, 'kel'],
         [/\b(?:pekerjaan|kerajaan|kerjaan|pekerjaan)\b/i, 'kerja'],
         [/\b(?:agama)\b/i, 'agama'],
         [/\b(?:status\s*perkawinan|perkawinan)\b/i, 'kawin'],
@@ -300,7 +322,7 @@ export default function NasabahBaru() {
       // di APK walau KTP jelas:  "= lama———___——_ = HAMDAN MUSTAR|"
       // Alias dibuat khusus kata 4 huruf yang mirip, bukan pola longgar, supaya
       // tidak menangkap "Alamat"/"Kecamatan" yang juga mengandung "ama".
-      const rawNama = oneLineValue(/\b(?:nama|lama|hama|nnama|nam|ama)\b/i)
+      const rawNama = oneLineValue(/\b(?:nama|lama|hama|nnama|nam|ama|naa)\b/i)
       const nm = cleanName(rawNama)
       if (nm) {
         setNama(nm)
@@ -339,9 +361,11 @@ export default function NasabahBaru() {
         setKtpAlamat(al)
         filled++
       }
-      const rr = oneLineValue(/\brt\s*\/?\s*rw\b/i)
-      if (rr && /^\d{1,3}\s*\/?\s*\d{1,3}$/.test(rr.replace(/\s/g, '').replace('/', '/'))) {
-        setKtpRtRw(rr.replace(/\s/g, ''))
+      // RT/RW: nilai berupa DIGIT sehingga cleanValue (yang membuang non-huruf)
+      // tidak bisa dipakai. Ambil langsung \d{1,3}/\d{1,3} dari barisnya.
+      const rrM = text.match(/\brt\s*\/?\s*rw\s*:?\s*(\d{1,3})\s*[\/\\]\s*(\d{1,3})\b/i)
+      if (rrM) {
+        setKtpRtRw(`${rrM[1]}/${rrM[2]}`)
         filled++
       }
       // Kelurahan & Kecamatan: pakai alias toleran karena OCR sering salah
@@ -760,6 +784,7 @@ export default function NasabahBaru() {
       {cropSrc && (
         <KtpCropDialog
           src={cropSrc}
+          suggested={cropBox}
           onCancel={() => setCropSrc('')}
           onConfirm={applyCrop}
         />
