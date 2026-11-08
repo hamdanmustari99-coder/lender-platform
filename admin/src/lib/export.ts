@@ -1,17 +1,39 @@
-// Ekspor berkas PDF/CSV yang bekerja di WEB dan di WebView native (Capacitor).
+// Ekspor berkas PDF/CSV yang bekerja di WEB, WebView native (Capacitor), dan
+// desktop Electron — dengan HASIL YANG SAMA di ketiganya.
 //
 // Kenapa tidak cukup <a download> + window.print()?
 //   * WebView Android tidak punya download manager dan tidak mengimplementasikan
-//     dialog print -> `a.click()` dan `window.print()` sama-sama no-op, jadi
-//     tombol laporan "tidak berfungsi" tanpa error apa pun.
-//   * Jalur native: tulis byte ke Filesystem (Documents) lalu buka share sheet
-//     Android supaya user bisa simpan ke Files / kirim ke WhatsApp-email.
-//   * Jalur web tetap pakai blob + <a download> (paling ringan, tanpa dialog).
+//     dialog print -> a.click() dan window.print() sama-sama no-op.
+//   * Electron memuat app lewat file:// tanpa handler will-download, jadi
+//     <a download>/blob: juga tidak menghasilkan berkas.
+//
+// Satu fungsi `saveFiles()` untuk semua platform supaya isi, nama, dan jumlah
+// berkas identik di desktop maupun HP:
+//   * APK      : tulis SEMUA berkas ke Documents/SWFinance, lalu SATU share sheet
+//                berisi semuanya. (Dulu tiap CSV memanggil share sendiri, jadi
+//                muncul 3 sheet berurutan dan tombol tampak menggantung.)
+//   * Desktop  : kirim semua ke proses utama lewat IPC -> ditulis ke satu folder
+//                (Downloads/SWFinance), tanpa dialog berulang.
+//   * Web      : unduh tiap berkas lewat <a download>.
 import { Capacitor } from '@capacitor/core'
 import { Directory, Encoding, Filesystem } from '@capacitor/filesystem'
 import { Share } from '@capacitor/share'
 
 export const isNativePlatform = Capacitor.isNativePlatform()
+
+/** Jembatan desktop (preload.cjs). Ada hanya di aplikasi Electron. */
+interface SwfBridge {
+  isDesktop?: boolean
+  saveFiles?: (files: { name: string; base64: string }[]) => Promise<{ folder: string; count: number }>
+}
+declare global {
+  interface Window {
+    swf?: SwfBridge
+  }
+}
+
+export const isDesktopApp =
+  typeof window !== 'undefined' && Boolean(window.swf?.isDesktop && window.swf?.saveFiles)
 
 /** ArrayBuffer -> base64 (dipakai Filesystem.writeFile tanpa encoding) */
 function bufferToBase64(buf: ArrayBuffer): string {
@@ -45,58 +67,90 @@ export interface SavedFile {
   location: string
 }
 
+/** Satu berkas yang akan disimpan/dibagikan. */
+export interface OutFile {
+  name: string
+  data: Blob | ArrayBuffer
+  mime: string
+}
+
+const toBlob = (f: OutFile) => (f.data instanceof Blob ? f.data : new Blob([f.data], { type: f.mime }))
+
 /**
- * Simpan berkas lalu tawarkan ke user.
- * Native: tulis ke Documents/SWFinance/<name> + buka share sheet.
- * Web:    unduh lewat <a download>.
+ * Simpan sekumpulan berkas sekaligus dan tawarkan ke user.
+ * Semua platform menulis berkas yang SAMA (nama + isi identik).
  */
+export async function saveFiles(files: OutFile[]): Promise<SavedFile[]> {
+  if (files.length === 0) return []
+
+  // ---- Desktop Electron: tulis ke satu folder lewat proses utama ----
+  if (isDesktopApp && window.swf?.saveFiles) {
+    const payload = await Promise.all(
+      files.map(async (f) => ({ name: f.name, base64: await blobToBase64(toBlob(f)) })),
+    )
+    const res = await window.swf.saveFiles(payload)
+    return files.map((f) => ({ name: f.name, location: res.folder }))
+  }
+
+  // ---- Web browser: unduh tiap berkas ----
+  if (!isNativePlatform) {
+    const out: SavedFile[] = []
+    for (const f of files) {
+      const url = URL.createObjectURL(toBlob(f))
+      const a = document.createElement('a')
+      a.href = url
+      a.download = f.name
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      // Revoke ditunda: revoke langsung membatalkan unduhan di sebagian browser.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      out.push({ name: f.name, location: 'folder Unduhan browser' })
+      // Jeda kecil supaya browser tidak memblokir unduhan beruntun.
+      if (files.length > 1) await new Promise((r) => setTimeout(r, 250))
+    }
+    return out
+  }
+
+  // ---- APK (Capacitor): tulis SEMUA dulu, lalu SATU share sheet ----
+  const out: SavedFile[] = []
+  const uris: string[] = []
+  for (const f of files) {
+    const base64 = await blobToBase64(toBlob(f))
+    const path = `SWFinance/${f.name}`
+    const res = await Filesystem.writeFile({
+      path,
+      data: base64,
+      directory: Directory.Documents,
+      recursive: true,
+    })
+    const { uri } = await Filesystem.getUri({ path, directory: Directory.Documents })
+    out.push({ name: f.name, uri: res.uri, location: 'Documents/SWFinance' })
+    uris.push(uri)
+  }
+  try {
+    // Share sheet = satu-satunya cara menyimpan ke folder pilihan user di Android 11+.
+    await Share.share({
+      title: files.length === 1 ? files[0].name : `SWFinance — ${files.length} berkas laporan`,
+      text: 'SWFinance — laporan',
+      files: uris,
+      dialogTitle: 'Simpan atau kirim laporan',
+    })
+  } catch {
+    // User menutup share sheet / plugin tidak tersedia: berkas SUDAH tersimpan di
+    // Documents/SWFinance, jadi ini bukan kegagalan ekspor.
+  }
+  return out
+}
+
+/** Simpan satu berkas (pembungkus saveFiles). */
 export async function saveAndShare(
   name: string,
   data: Blob | ArrayBuffer,
   mime: string,
 ): Promise<SavedFile> {
-  const blob = data instanceof Blob ? data : new Blob([data], { type: mime })
-
-  if (!isNativePlatform) {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = name
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    // Revoke ditunda: revoke langsung membatalkan unduhan di sebagian browser.
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
-    return { name, location: 'folder Unduhan browser' }
-  }
-
-  const base64 = await blobToBase64(blob)
-  // Folder sendiri supaya mudah dicari di Files, dan tidak tabrakan dengan app lain.
-  const path = `SWFinance/${name}`
-  const res = await Filesystem.writeFile({
-    path,
-    data: base64,
-    directory: Directory.Documents,
-    recursive: true,
-  })
-
-  // Share sheet = satu-satunya cara menyimpan ke folder pilihan user di Android 11+.
-  try {
-    // Ambil file:// URI dari path internal plugin agar provider-nya cocok.
-    const { uri } = await Filesystem.getUri({ path, directory: Directory.Documents })
-    await Share.share({
-      title: name,
-      text: `SWFinance — ${name}`,
-      url: uri,
-      files: [uri],
-      dialogTitle: 'Simpan atau kirim laporan',
-    })
-  } catch {
-    // User menutup share sheet atau share plugin tidak tersedia: berkas SUDAH
-    // tersimpan di Documents/SWFinance, jadi ini bukan kegagalan ekspor.
-  }
-
-  return { name, uri: res.uri, location: 'Documents/SWFinance' }
+  const [first] = await saveFiles([{ name, data, mime }])
+  return first
 }
 
 /** CSV sebagai teks -> simpan/unduh dengan BOM UTF-8 (Excel Windows aman) */

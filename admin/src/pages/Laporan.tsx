@@ -12,7 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import { buatPdf } from '../lib/report-pdf'
-import { saveAndShare, saveCsv, toCsv } from '../lib/export'
+import { saveAndShare, saveFiles, toCsv } from '../lib/export'
 import {
   fetchLaporanBulanan,
   fetchLaporanRingkasan,
@@ -171,63 +171,68 @@ export default function Laporan() {
     setEksporBusy('csv')
     setEksporInfo('')
     try {
+      // CSV dibangun lebih dulu sebagai teks, lalu DIsimpan sekaligus dalam satu
+      // panggilan. Semua platform menerima berkas yang sama (nama + isi), dan di
+      // APK hanya muncul SATU share sheet untuk ketiga berkas — bukan tiga sheet
+      // berurutan yang membuat tombol tampak menggantung.
+      const csvFile = (name: string, rows: (string | number)[][]) => ({
+        name,
+        // BOM UTF-8 supaya Excel Windows membaca karakter Indonesia dengan benar.
+        data: new Blob(['\ufeff' + toCsv(rows)], { type: 'text/csv;charset=utf-8;' }),
+        mime: 'text/csv;charset=utf-8;',
+      })
+
       // 1. Ringkasan + arus kas
-      await saveCsv(
-        `${pre}_ringkasan.csv`,
-        toCsv([
-          ['Laporan Bulanan SWFinance'],
-          ['Periode', `${periode.nama_bulan} ${periode.tahun}`],
-          ['Rentang', `${periode.dari} s/d ${periode.sampai}`],
-          [],
-          ['Metrik', 'Nilai (Rp)'],
-          ['Modal dipinjamkan (pencairan)', rk.pencairan],
-          ['Pinjaman baru', rk.pinjaman_baru],
-          ['Nasabah baru', rk.nasabah_baru],
-          ['Tagihan jatuh tempo', rk.jatuh_tempo],
-          ['Terkumpul (bruto)', rk.terkumpul],
-          ['Koreksi pembayaran', rk.koreksi],
-          ['Terkumpul bersih', rk.terkumpul_bersih],
-          ['Kolektibilitas (%)', kolektibilitas],
-          ['Laba bunga', rk.laba_bunga],
-          ['Sisa piutang', rk.sisa_piutang],
-          ['Total modal berjalan', rk.total_modal],
-          ['Pinjaman berjalan', rk.pinjaman_berjalan],
-          ['Nasabah aktif (bayar bulan ini)', rk.nasabah_aktif],
-          [],
-          ['Arus Kas', 'Nilai (Rp)'],
-          ['Kas masuk - pembayaran', lap.arus_kas.masuk_pembayaran],
-          ['Kas masuk - lainnya', lap.arus_kas.masuk_lain],
-          ['Kas keluar - pencairan', lap.arus_kas.keluar_pencairan],
-          ['Kas keluar - lainnya', lap.arus_kas.keluar_lain],
-          [
-            'Kas bersih',
-            lap.arus_kas.masuk_pembayaran +
-              lap.arus_kas.masuk_lain -
-              lap.arus_kas.keluar_pencairan -
-              lap.arus_kas.keluar_lain,
-          ],
-        ]),
-      )
+      const csvRingkasan = csvFile(`${pre}_ringkasan.csv`, [
+        ['Laporan Bulanan SWFinance'],
+        ['Periode', `${periode.nama_bulan} ${periode.tahun}`],
+        ['Rentang', `${periode.dari} s/d ${periode.sampai}`],
+        [],
+        ['Metrik', 'Nilai (Rp)'],
+        ['Modal dipinjamkan (pencairan)', rk.pencairan],
+        ['Pinjaman baru', rk.pinjaman_baru],
+        ['Nasabah baru', rk.nasabah_baru],
+        ['Tagihan jatuh tempo', rk.jatuh_tempo],
+        ['Terkumpul (bruto)', rk.terkumpul],
+        ['Koreksi pembayaran', rk.koreksi],
+        ['Terkumpul bersih', rk.terkumpul_bersih],
+        ['Kolektibilitas (%)', kolektibilitas],
+        ['Laba bunga', rk.laba_bunga],
+        ['Sisa piutang', rk.sisa_piutang],
+        ['Total modal berjalan', rk.total_modal],
+        ['Pinjaman berjalan', rk.pinjaman_berjalan],
+        ['Nasabah aktif (bayar bulan ini)', rk.nasabah_aktif],
+        [],
+        ['Arus Kas', 'Nilai (Rp)'],
+        ['Kas masuk - pembayaran', lap.arus_kas.masuk_pembayaran],
+        ['Kas masuk - lainnya', lap.arus_kas.masuk_lain],
+        ['Kas keluar - pencairan', lap.arus_kas.keluar_pencairan],
+        ['Kas keluar - lainnya', lap.arus_kas.keluar_lain],
+        [
+          'Kas bersih',
+          lap.arus_kas.masuk_pembayaran +
+            lap.arus_kas.masuk_lain -
+            lap.arus_kas.keluar_pencairan -
+            lap.arus_kas.keluar_lain,
+        ],
+      ])
 
       // 2. Tren 6 bulan
-      await saveCsv(
-        `${pre}_tren.csv`,
-        toCsv([
-          ['Bulan', 'Pencairan', 'Terkumpul', 'Jatuh Tempo'],
-          ...(lap.tren ?? []).map((t) => [t.label_panjang, t.pencairan, t.terkumpul, t.jatuh_tempo]),
-        ]),
-      )
+      const csvTren = csvFile(`${pre}_tren.csv`, [
+        ['Bulan', 'Pencairan', 'Terkumpul', 'Jatuh Tempo'],
+        ...(lap.tren ?? []).map((t) => [t.label_panjang, t.pencairan, t.terkumpul, t.jatuh_tempo]),
+      ])
 
       // 3. Top nasabah
-      await saveCsv(
-        `${pre}_top_nasabah.csv`,
-        toCsv([
-          ['Peringkat', 'Nasabah', 'NIK', 'Status Keandalan', 'Pinjaman', 'Sisa Piutang'],
-          ...(lap.top_nasabah ?? []).map((t, i) => [i + 1, t.nama, t.nik, t.status, t.pinjaman, t.sisa]),
-        ]),
-      )
+      const csvTop = csvFile(`${pre}_top_nasabah.csv`, [
+        ['Peringkat', 'Nasabah', 'NIK', 'Status Keandalan', 'Pinjaman', 'Sisa Piutang'],
+        ...(lap.top_nasabah ?? []).map((t, i) => [i + 1, t.nama, t.nik, t.status, t.pinjaman, t.sisa]),
+      ])
 
-      setEksporInfo('3 berkas CSV tersimpan — cek Documents/SWFinance atau menu berbagi.')
+      await saveFiles([csvRingkasan, csvTren, csvTop])
+      // Lokasi sebenarnya dikembalikan platform: HP "Documents/SWFinance",
+      // desktop "…\Downloads\SWFinance", web "folder Unduhan browser".
+      setEksporInfo('3 berkas CSV tersimpan — cek folder unduhan / menu berbagi.')
     } catch (e) {
       setError(`Ekspor CSV gagal: ${errMsg(e)}`)
     } finally {

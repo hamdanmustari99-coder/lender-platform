@@ -11,4 +11,7 @@ contextBridge.exposeInMainWorld('swf', {
   getSupabaseConfig: () =>
     ipcRenderer.sendSync('swf:get-supabase-config', 'supabase'),
   saveSupabaseConfig: (cfg) => ipcRenderer.invoke('swf:set-supabase-config', cfg),
+  // Simpan laporan PDF/CSV ke folder Downloads/SWFinance di sisi main process.
+  // Mengembalikan { folder, count } supaya UI bisa menyebut lokasi berkasnya.
+  saveFiles: (files) => ipcRenderer.invoke('swf:save-files', files),
 })

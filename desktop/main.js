@@ -110,6 +110,36 @@ ipcMain.handle('swf:set-supabase-config', (_event, cfg) => {
   return { ok: true }
 })
 
+// Simpan laporan (PDF/CSV) dari renderer.
+// Renderer memuat app lewat file:// tanpa handler will-download, jadi <a download>
+// dan blob: TIDAK menghasilkan berkas apa pun — itulah sebabnya ekspor laporan
+// tampak mati di desktop. Semua berkas ditulis di sini ke SATU folder, dengan
+// nama + isi yang sama persis seperti yang ditulis APK.
+//
+// Sengaja TIDAK memakai dialog "simpan sebagai" per berkas: laporan CSV terdiri
+// dari 3 berkas, jadi dialog berulang menyiksa. Satu folder, satu lokasi.
+ipcMain.handle('swf:save-files', async (_event, files) => {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error('Tidak ada berkas untuk disimpan.')
+  }
+  const folder = path.join(app.getPath('downloads'), 'SWFinance')
+  fs.mkdirSync(folder, { recursive: true })
+
+  let saved = 0
+  for (const f of files) {
+    const name = String(f?.name || '').trim()
+    // Tolak nama yang mencoba keluar folder (path traversal).
+    if (!name || name.includes('..') || /[\\/]/.test(name)) {
+      throw new Error(`Nama berkas tidak valid: ${name || '(kosong)'}`)
+    }
+    const buf = Buffer.from(String(f.base64 || ''), 'base64')
+    if (buf.length === 0) throw new Error(`Berkas kosong: ${name}`)
+    fs.writeFileSync(path.join(folder, name), buf)
+    saved += 1
+  }
+  return { folder, count: saved }
+})
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1360,
