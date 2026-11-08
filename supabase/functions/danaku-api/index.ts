@@ -220,6 +220,21 @@ Deno.serve(async (req) => {
         return json({ error: 'Tidak bisa menghapus akun sendiri.' }, 400)
       }
 
+      // Pagar kedua: target harus benar-benar nasabah. Pemeriksaan pemanggil
+      // saja tidak cukup — dulu akun admin ikut tampil di Daftar Nasabah
+      // sehingga operator bisa menghapus akun admin lain dan mengunci
+      // platform. Menghapus akun berperan admin/owner selalu ditolak.
+      const { data: target, error: tErr } = await admin
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle()
+      if (tErr) return json({ error: tErr.message }, 400)
+      if (!target) return json({ error: 'Nasabah tidak ditemukan.' }, 404)
+      if (target.role !== 'nasabah') {
+        return json({ error: 'Akun admin/owner tidak bisa dihapus dari daftar nasabah.' }, 403)
+      }
+
       // Tolak hapus kalau masih ada pinjaman berjalan — histori utang harus utuh.
       const { data: activeLoans, error: lErr } = await admin
         .from('loans')
