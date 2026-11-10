@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
+  adminBatalLoan,
   fetchInstallments,
   fetchLoan,
   fetchLoanDocuments,
@@ -10,6 +11,7 @@ import {
 } from '../lib/api'
 import type { Installment, Loan, LoanDocument } from '../lib/api'
 import EmergencyContacts from '../components/EmergencyContacts'
+import { useConfirm } from '../components/ConfirmDialog'
 import { useToast } from '../components/Toast'
 import { fmtDate, fmtRp, LOAN_STATUS_CLASS, LOAN_STATUS_LABEL, errMsg } from '../lib/format'
 
@@ -35,7 +37,9 @@ const cicilanLabel = (loan: Loan): string =>
 
 export default function LoanDetail() {
   const { id } = useParams<{ id: string }>()
+  const navigate = useNavigate()
   const { showToast } = useToast()
+  const confirm = useConfirm()
   const [loan, setLoan] = useState<Loan | null>(null)
   const [installments, setInstallments] = useState<Installment[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -47,6 +51,31 @@ export default function LoanDetail() {
   const [payTarget, setPayTarget] = useState<Installment | null>(null)
   const [payAmount, setPayAmount] = useState('')
   const [payNote, setPayNote] = useState('')
+
+  const doBatal = async () => {
+    if (!loan) return
+    const ok = await confirm({
+      title: 'Batalkan pinjaman ini?',
+      message: `Pinjaman ${fmtRp(loan.amount)} atas nama ${loan.profiles?.full_name || '—'} akan DIHAPUS beserta jadwal cicilan dan jejak arus kasnya. Aksi ini tidak bisa dibatalkan.`,
+      confirmText: 'Hapus Pinjaman',
+      tone: 'danger',
+      requireText: 'BATAL',
+    })
+    if (!ok) return
+    setActionErr(null)
+    setBusy(true)
+    try {
+      await adminBatalLoan(loan.id)
+      showToast('Pinjaman dibatalkan dan dihapus bersih.', 'success')
+      navigate('/loans')
+    } catch (e) {
+      const message = errMsg(e)
+      setActionErr(message)
+      showToast(message, 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   const doPay = async () => {
     if (!payTarget) return
@@ -167,9 +196,20 @@ export default function LoanDetail() {
           </h1>
           <p className="mt-1 text-sm text-slate-500">Pinjaman {fmtRp(loan.amount)} · diajukan {fmtDate(loan.created_at)}</p>
         </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-medium ${LOAN_STATUS_CLASS[loan.status]}`}>
-          {LOAN_STATUS_LABEL[loan.status]}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${LOAN_STATUS_CLASS[loan.status]}`}>
+            {LOAN_STATUS_LABEL[loan.status]}
+          </span>
+          {(loan.status === 'disbursed' || loan.status === 'active') && (
+            <button
+              disabled={busy}
+              onClick={() => void doBatal()}
+              className="min-h-11 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+            >
+              🗑 Batalkan Pinjaman
+            </button>
+          )}
+        </div>
       </div>
 
       {actionErr && (

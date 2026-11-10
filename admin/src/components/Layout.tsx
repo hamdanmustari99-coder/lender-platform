@@ -3,12 +3,11 @@ import { supabase, isConfigured } from '../lib/supabase'
 
 /**
  * NAV — dipakai dua tempat:
- *   • desktop (lg+): tab di top navbar
- *   • mobile  (<lg) : bottom navigation bar
+ *   • desktop (lg+): tab di top navbar (6 item lengkap)
+ *   • mobile  (<lg) : bottom navigation bar — 4 item: Home, Pinjaman, Nasabah,
+ *     Revisi. Arus Kas & Laporan dijangkau dari Dashboard/desktop.
  *
- * "+ Pinjaman Baru" sengaja TIDAK masuk bottom bar — 5 item sudah penuh
- * untuk lebar 360–430px. Di mobile aksi itu jadi FAB (tombol melayang)
- * supaya tetap satu klik dari halaman mana pun.
+ * "+ Pinjaman Baru" TIDAK masuk bottom bar — jadi FAB (tombol melayang).
  */
 const NAV = [
   { to: '/', label: 'Dashboard', short: 'Home', end: true, icon: HomeIcon },
@@ -142,7 +141,7 @@ export default function Layout() {
         aria-label="Menu utama"
       >
         <div className="flex items-stretch justify-around">
-          {NAV.filter((n) => n.to !== '/setoran').map((n) => (
+          {NAV.filter((n) => n.to !== '/arus-kas' && n.to !== '/laporan').map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

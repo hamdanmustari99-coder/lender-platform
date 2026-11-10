@@ -827,6 +827,50 @@ export async function recordCashPayment(
   if (error) throw error
 }
 
+/** Batalkan pinjaman yang belum punya pembayaran valid — hapus bersih semua jejak. */
+export async function adminBatalLoan(loanId: string): Promise<void> {
+  const { error } = await supabase.rpc('admin_batal_loan', {
+    p_loan_id: loanId,
+  })
+  if (error) throw error
+}
+
+/** Field nasabah yang boleh diedit admin (NIK/role/kyc terkunci di server). */
+export interface NasabahEditData {
+  full_name?: string
+  phone?: string
+  tempat_lahir?: string
+  birth_date?: string
+  jenis_kelamin?: string
+  address?: string
+  current_address?: string
+  office_address?: string
+  rt_rw?: string
+  kelurahan?: string
+  kecamatan?: string
+  kota?: string
+  provinsi?: string
+  agama?: string
+  status_kawin?: string
+  pekerjaan?: string
+  kewarganegaraan?: string
+  home_lat?: number | null
+  home_lng?: number | null
+  office_lat?: number | null
+  office_lng?: number | null
+}
+
+export async function adminUpdateNasabah(
+  userId: string,
+  data: NasabahEditData,
+): Promise<void> {
+  const { error } = await supabase.rpc('admin_update_nasabah', {
+    p_user_id: userId,
+    p_data: data,
+  })
+  if (error) throw error
+}
+
 /** Admin verifikasi / tolak KYC (diizinkan RLS utk admin) */
 export async function setKycStatus(
   userId: string,
